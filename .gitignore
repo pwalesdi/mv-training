@@ -1,0 +1,8 @@
+# Athlete data never goes in git: workbooks, race exports, and everything built from them
+data/*
+!data/README.md
+
+__pycache__/
+*.pyc
+.venv/
+.DS_Store

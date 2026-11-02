@@ -1,0 +1,31 @@
+label,workout_type,format,status,note
+threshold intervals,threshold,intervals,confirmed,
+threshold intevals,threshold,intervals,confirmed,typo
+threshold reps,threshold,intervals,confirmed,
+threshold run,threshold,continuous,confirmed,continuous version of threshold intervals (Patrick)
+threshold hills,threshold,hills,confirmed,
+aerobic threshold,threshold,continuous,confirmed,Patrick: aerobic threshold belongs in the threshold-run family
+aerobic threshold intervals,threshold,intervals,confirmed,
+aerobic threshold run,threshold,continuous,confirmed,
+lactate threshold,threshold,intervals,confirmed,
+lactate threshold intervals,threshold,intervals,confirmed,
+lactate threshold interval,threshold,intervals,confirmed,
+anaerobic threshold intervals,threshold,intervals,confirmed,
+anaerobic threshold run,threshold,continuous,confirmed,
+anaerobicthreshold run,threshold,continuous,confirmed,typo
+anerobic threshold run,threshold,continuous,confirmed,typo
+aerobic power,aerobic_power,intervals,confirmed,VO2 / 3K-2 mile RP
+awrobic power,aerobic_power,intervals,confirmed,typo
+lactic capacity,lactic_capacity,intervals,confirmed,1200-2K RP
+lactate capacity,lactic_capacity,intervals,confirmed,
+speed endurance,speed_endurance,intervals,confirmed,800 RP and under
+speed endurace,speed_endurance,intervals,confirmed,typo
+lactate resistance,lactate_resistance,intervals,open,not in Patrick's list yet - keep separate until he maps it
+lacrate resistance,lactate_resistance,intervals,open,typo
+lactic resistance,lactate_resistance,intervals,open,
+lactate tolerance,lactate_tolerance,intervals,open,not in Patrick's list yet
+lactic power,lactic_power,intervals,open,not in Patrick's list yet
+alactic resistance,alactic_resistance,intervals,open,not in Patrick's list yet
+strength endurance,strength_endurance,intervals,open,not in Patrick's list yet
+aerobic run,easy_aerobic,continuous,open,
+aerobic development run,easy_aerobic,continuous,open,

@@ -1,0 +1,13 @@
+anchor,band,status,note
+mp,DT,confirmed,"DT pace band = MP/25K/20K/HM RP (Patrick). Before 2025-26 this band is reported as LT, since there was no double-threshold training."
+25k,DT,confirmed,
+20k,DT,confirmed,
+hm,DT,confirmed,
+dt,DT,confirmed,
+15k,LT,confirmed,LT = between HM and 10K
+lt,LT,confirmed,
+10k,LT_or_AnT,default,"Patrick left 10K to judgment. Default: reps >= 2000 m or continuous = LT, shorter reps = AnT"
+8k,AnT,confirmed,AnT = 10K down to 5K
+5k,AnT,confirmed,
+at,UNRESOLVED,open,"'AT' is ambiguous: aerobic or anaerobic threshold? Needs Patrick"
+threshold,UNRESOLVED,open,generic 'Threshold Pace' with no race anchor - needs Patrick
