@@ -13,5 +13,5 @@ Decisions recorded here come from Patrick; `status=default` marks a call Claude 
 Rules that name athletes live in `data/rules/` (git-ignored) so no student names end up in the repo:
 
 - `data/rules/aliases.csv` - workbook spelling/nickname -> Athletic.net athlete ID. Add a row whenever the review file reports an unmatched name.
-- `data/rules/athletes.csv` - per-athlete, per-season notes (e.g. alumni training with the group).
+- `data/rules/athletes.csv` - per-athlete, per-season notes (e.g. alumni training with the group). `status=exclude` leaves that athlete out of the build.
 - `data/rules/strava_aliases.csv` - Strava display name -> Athletic.net athlete ID, for the weekly mileage exports.

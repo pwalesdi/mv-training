@@ -133,6 +133,8 @@ def _do_sheet(ws, season, book, date, types, aliases, ath_notes, by_name, id_nam
         for a in b["athletes"]:
             aid, canon, how = resolve(a["name"], aliases, by_name, id_names)
             note = ath_notes.get((races.norm(a["name"]), season))
+            if note and note["status"] == "exclude":
+                continue  # out of scope (data/rules/athletes.csv)
             resolved.append((a, aid, canon, how, note["status"] if note else ""))
             if how == "unmatched":
                 review.append({"issue": "unmatched_athlete", "season": season, "tab": ws.title, "block": b["block_no"],
