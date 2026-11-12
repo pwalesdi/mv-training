@@ -13,7 +13,8 @@ rules/       editable decisions: workout types, pace bands, inference cutoffs
 data/        NOT in git - workbooks, race CSVs, and the built database
   workbooks/   MV_Workouts.YYZZ.xlsx (one per season, e.g. 2526 = 2025-26)
   races/       Athletic.net exports (MV_XC_*.csv, MV_TF_*.csv)
-  rules/       aliases.csv, athletes.csv
+  mileage/     weekly mileage exports from the Strava group (weeks x athletes)
+  rules/       aliases.csv, athletes.csv, strava_aliases.csv
   build/       output: training.sqlite + CSVs (regenerated every run)
 ```
 
@@ -40,6 +41,7 @@ and re-run. The build is from scratch every time and never edits the workbooks.
 | `athlete_blocks` | athlete in a block: Athletic.net ID, cooldown, total volume, notes |
 | `reps` | athlete x rep: distance, target, actual, status, type/band, shared-split flag |
 | `races` | Athletic.net result |
+| `weekly_mileage` | athlete x week (Strava): miles, partial-week flag |
 | `review` | anything the parser couldn't settle - read this after each run |
 
 ## Rules that came from Patrick

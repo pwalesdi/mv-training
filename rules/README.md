@@ -14,3 +14,4 @@ Rules that name athletes live in `data/rules/` (git-ignored) so no student names
 
 - `data/rules/aliases.csv` - workbook spelling/nickname -> Athletic.net athlete ID. Add a row whenever the review file reports an unmatched name.
 - `data/rules/athletes.csv` - per-athlete, per-season notes (e.g. alumni training with the group).
+- `data/rules/strava_aliases.csv` - Strava display name -> Athletic.net athlete ID, for the weekly mileage exports.

@@ -20,7 +20,7 @@ from pathlib import Path
 
 import openpyxl
 
-from . import classify, dates, races
+from . import classify, dates, mileage, races
 from .cells import CHURCH_LAP_M
 from .workbook import parse_sheet
 
@@ -82,6 +82,9 @@ def build(seasons=None, out_dir=None):
                       by_name, id_names, fitness, cutoffs, T)
 
     _days(T)
+    m_rows, m_review = mileage.load(DATA / "mileage", PRIVATE_RULES / "strava_aliases.csv", by_name, id_names)
+    T["weekly_mileage"].extend(m_rows)
+    T["review"].extend(m_review)
     for r in race_rows:
         T["races"].append({**r, "date": r["date"].isoformat()})
     _write(T, out_dir)
