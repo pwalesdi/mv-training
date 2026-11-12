@@ -10,7 +10,7 @@ from pathlib import Path
 from .cells import CHURCH_LAP_M
 
 RULES = Path(__file__).resolve().parent.parent / "rules"
-DT_FIRST_SEASON = "2526"  # no double-threshold training before 2025-26 (Patrick)
+DT_FIRST_SEASON = "2526"  # double-threshold *days* start in 2025-26 (Patrick); the DT pace band applies to every season
 
 # anchor token -> equivalent race distance in km
 NAMED_KM = {"mp": 42.195, "hmp": 21.0975, "hm": 21.0975}
@@ -22,37 +22,44 @@ def load_types():
         return {r["label"]: r for r in csv.DictReader(fh)}
 
 
-def load_bands():
-    with open(RULES / "pace_bands.csv") as fh:
-        return {r["anchor"]: r for r in csv.DictReader(fh)}
+def _read(name):
+    with open(RULES / name) as fh:
+        return list(csv.DictReader(fh))
 
 
-_BANDS = None
+_ZONES = None
+_SYMBOLS = None
 
 
-def _bands():
-    global _BANDS
-    if _BANDS is None:
-        _BANDS = load_bands()
-    return _BANDS
+def zones():
+    global _ZONES
+    if _ZONES is None:
+        _ZONES = [{**r, "min": float(r["min_km"]), "max": float(r["max_km"])} for r in _read("pace_zones.csv")]
+    return _ZONES
 
 
-def type_by_anchor(start, default):
-    """Patrick's categories are defined by race pace, so lactic-family labels are placed by their anchor.
+def symbols():
+    global _SYMBOLS
+    if _SYMBOLS is None:
+        _SYMBOLS = {r["anchor"]: r for r in _read("pace_symbols.csv")}
+    return _SYMBOLS
 
-    <=800 RP speed endurance; 1000-2000 RP lactic capacity; 3K-5K RP aerobic power
-    (5K: that's where his own Aerobic Power labels mostly sit); slower -> threshold.
-    """
-    if not start or start[0] != "km":
-        return default, "no race-distance anchor; label default"
-    km = start[1]
-    if km <= 0.8:
-        return "speed_endurance", f"anchor {km:g}K <= 800 RP"
-    if km <= 2.0:
-        return "lactic_capacity", f"anchor {km:g}K in 1000-2000 RP"
-    if km <= 5.0:
-        return "aerobic_power", f"anchor {km:g}K in 3K-5K RP"
-    return "threshold", f"anchor {km:g}K slower than 5K RP"
+
+def place(val):
+    """Anchor value -> (workout_type, band, rule) from rules/pace_zones.csv and rules/pace_symbols.csv."""
+    if val is None:
+        return None
+    kind, x = val
+    if kind == "sym":
+        r = symbols().get(x)
+        if not r or not r["workout_type"]:
+            return None
+        rule = f"anchor {x.upper()}" + (" (proposed)" if r["status"] == "proposed" else "")
+        return r["workout_type"], r["band"], rule
+    for z in zones():
+        if z["min"] < x <= z["max"]:
+            return z["workout_type"], z["band"], f"anchor {x:g}K -> {z['note'] or z['workout_type']}"
+    return None
 
 
 def norm_label(label):
@@ -131,41 +138,6 @@ def parse_anchor(phrase):
     return vals[0], vals[-1], progression
 
 
-def band_for(val, season, rep_m=None, continuous=False):
-    """Threshold band for one anchor value. Returns (band, rule)."""
-    if val is None:
-        return "UNRESOLVED", "no anchor"
-    kind, x = val
-    if kind == "sym":
-        row = _bands().get(x)
-        if not row or not row["band"] or row["band"] == "UNRESOLVED":
-            return "UNRESOLVED", f"anchor '{x}' not mapped yet"
-        band, rule = row["band"], f"anchor {x.upper()}"
-        cut = float(row["short_rep_below_m"]) if row.get("short_rep_below_m") else None
-        if cut and row.get("short_rep_band") and rep_m and rep_m < cut and not continuous:
-            band, rule = row["short_rep_band"], f"anchor {x.upper()}, reps under {cut:g} m"
-        if row.get("status") == "proposed":
-            rule += " (proposed)"
-    else:
-        km = x
-        if km >= 19:
-            band, rule = "DT", f"{km:g}K >= HM-ish -> DT pace"
-        elif km > 10:
-            band, rule = "LT", f"{km:g}K between HM and 10K -> LT"
-        elif km == 10:
-            if continuous or (rep_m and rep_m >= 2000):
-                band, rule = "LT", "10K, long reps/continuous -> LT (default)"
-            else:
-                band, rule = "AnT", "10K, short reps -> AnT (default)"
-        elif km >= 5:
-            band, rule = "AnT", f"{km:g}K between 10K and 5K -> AnT"
-        else:
-            band, rule = "faster_than_AnT", f"{km:g}K is faster than 5K"
-    if band == "DT" and season < DT_FIRST_SEASON:
-        return "LT", rule + "; pre-2025-26 so reported as LT"
-    return band, rule
-
-
 def label_distances(prescription, church=False):
     """Rep distances a label line mentions (anchor phrases removed), used to match reps to lines."""
     s = ANCHOR_SEG.sub(" ", prescription)
@@ -185,6 +157,7 @@ def label_distances(prescription, church=False):
 
 
 def classify_line(line, season, types, church=False, rep_m=None):
+    """rep_m is kept for callers; current rules don't depend on rep length."""
     label, presc = split_label(line)
     t = types.get(label)
     wtype = t["workout_type"] if t else "UNMAPPED"
@@ -192,24 +165,29 @@ def classify_line(line, season, types, church=False, rep_m=None):
     status = t["status"] if t else "unmapped"
     anc = anchors(presc)
     start, end, prog = parse_anchor(anc[0]) if anc else (None, None, False)
-    band, band_rule = "", ""
-    type_rule = "label"
-    if wtype == "by_anchor":
-        wtype, type_rule = type_by_anchor(start, t.get("default_type") or "UNMAPPED")
-    if wtype == "threshold":
-        cont = fmt == "continuous"
-        # explicit band in the label wins when the anchor is symbolic or missing
-        if "lactate threshold" in label and (start is None or start[0] == "sym"):
-            band, band_rule = "LT", "label says Lactate Threshold"
-        elif re.search(r"an?a?erobic ?threshold", label) and not label.startswith("aerobic") and (start is None or start[0] == "sym"):
-            band, band_rule = "AnT", "label says Anaerobic Threshold"
+    band, band_rule, type_rule = "", "", "label"
+    pace_decides = t is not None and t.get("pace_decides") == "yes"
+    p1, p2 = place(start), place(end)
+    named = _named_band(label)
+    if pace_decides and p1 and start[0] == "sym" and named:
+        # "Anaerobic Threshold: lap @ AT pace" - the label names the band; the symbolic anchor doesn't override it
+        wtype, band, type_rule = "threshold", named[0], named[1]
+        band_rule = type_rule
+    elif pace_decides and p1:
+        wtype, band, type_rule = p1
+        band_rule = type_rule
+        if prog and p2 and p2[:2] != p1[:2]:
+            if p2[0] == wtype and band and p2[1]:
+                band = f"{band}->{p2[1]}"
+            band_rule = f"progression: {p1[2]} / {p2[2]}"
+    elif wtype == "threshold":
+        # no usable anchor: the label's own words decide the band
+        if named:
+            band, band_rule = named
         else:
-            b1, r1 = band_for(start, season, rep_m, cont)
-            if prog and end != start:
-                b2, r2 = band_for(end, season, rep_m, cont)
-                band, band_rule = (b1, r1) if b1 == b2 else (f"{b1}->{b2}", f"progression: {r1} / {r2}")
-            else:
-                band, band_rule = b1, r1
+            band, band_rule = "UNRESOLVED", "no usable pace anchor" if start is None else f"anchor '{_fmt(start)}' not mapped"
+    elif pace_decides and t.get("default_type"):
+        wtype, type_rule = t["default_type"], "no race-distance anchor; label default"
     return {
         "label_raw": line,
         "label": label,
@@ -227,6 +205,15 @@ def classify_line(line, season, types, church=False, rep_m=None):
         "band_rule": band_rule,
         "distances": label_distances(presc, church),
     }
+
+
+def _named_band(label):
+    """Band named in the label itself, if any: lactate/anaerobic threshold = LT, aerobic threshold = DT."""
+    if re.search(r"lactate threshold|an?a?erobic ?threshold", label) and not label.startswith("aerobic"):
+        return "LT", "label says Lactate/Anaerobic Threshold (= LT)"
+    if label.startswith("aerobic threshold"):
+        return "DT", "label says Aerobic Threshold (= DT)"
+    return None
 
 
 def _fmt(v):

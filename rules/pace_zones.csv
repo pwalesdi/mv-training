@@ -1,0 +1,7 @@
+min_km,max_km,workout_type,band,status,note
+0,0.8,speed_endurance,,confirmed,800 RP and faster
+0.8,2.0,lactic_capacity,,confirmed,1200-2K RP
+2.0,3.5,aerobic_power,,confirmed,aerobic power / VO2 max = 3K-3200 RP
+3.5,6.0,lactate_resistance,,confirmed,5K blend: top-end anaerobic threshold / bottom-end aerobic power
+6.0,19.0,threshold,LT,confirmed,LT = anaerobic threshold (10K-15K RP)
+19.0,999,threshold,DT,confirmed,DT = aerobic threshold (HM / 20K / 25K / MP)

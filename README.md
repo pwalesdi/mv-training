@@ -48,9 +48,7 @@ and re-run. The build is from scratch every time and never edits the workbooks.
 
 - The **tab name is the date**; the date written in the sheet is only checked against it.
 - **Church loop** = 1725 m. Venue "Church" or any 1725 m rep means the church loop.
-- **Double threshold** = a 2025-26+ day with Session 1 and Session 2. Nothing before 2025-26 is double threshold.
-- **Threshold family** = threshold intervals, threshold runs (continuous) and aerobic threshold.
-  Bands: **DT** = MP/25K/20K/HM pace, **LT** = between HM and 10K, **AnT** = 10K to 5K.
-  Before 2025-26, DT-pace work is reported as LT.
-- Categories: long run, double threshold, LT, AnT, aerobic power (3K-2 mile RP),
-  lactic capacity (1200-2K RP), speed endurance (800 RP and under).
+- **Double threshold day** = a 2025-26+ day with Session 1 and Session 2.
+- Categories and pace bands (speed endurance / lactic capacity / aerobic power /
+  lactate resistance / LT / DT) are in `rules/README.md`. Any single day can be
+  corrected in `rules/line_overrides.csv`.

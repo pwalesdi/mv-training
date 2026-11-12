@@ -1,6 +1,6 @@
 max_pct_of_mile_pace,workout_type,band,note
-104,short_fast,,"speed endurance or lactic capacity: split by rep length below (<=400 m speed endurance, longer lactic capacity)"
-111,aerobic_power,,labeled aerobic power medians 108% of mile pace (2025-26)
-118,threshold,AnT,labeled 5K-anchored threshold medians 114%
-125,threshold,LT,"labeled LT / 10K / AT anchors median 121-122%"
-999,threshold,DT,"labeled HM / MP / 20K anchors median 127-129%; reported as LT before 2025-26"
+104,short_fast,,"speed endurance or lactic capacity: split by rep length (<=400 m speed endurance, longer lactic capacity)"
+110,aerobic_power,,"3K / 3200-anchored reps median 105-108% of mile pace (2024-27)"
+116,lactate_resistance,,"5K-anchored reps median 111-116%"
+124,threshold,LT,"10K / 15K / LT anchors median 118-122%"
+999,threshold,DT,"HM / 20K / MP anchors and Session 1 DT median 126-129%"

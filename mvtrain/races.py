@@ -110,7 +110,7 @@ def type_from_pct(pct, rep_m, cutoffs):
         return "", ""
     for c in cutoffs:
         if pct <= c["max"]:
-            if c["workout_type"] == "short_fast":
+            if c["workout_type"] == "short_fast":  # speed endurance vs lactic capacity by rep length
                 return ("speed_endurance" if rep_m and rep_m <= 400 else "lactic_capacity"), ""
             return c["workout_type"], c["band"]
     return "", ""

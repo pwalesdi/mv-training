@@ -40,6 +40,14 @@ def load_athlete_notes():
         return {(races.norm(r["workbook_name"]), r["season"]): r for r in csv.DictReader(fh)}
 
 
+AT_CHECK_PCT = 117  # AT lines whose targets ran faster than this % of mile pace get flagged
+
+
+def load_overrides():
+    with open(RULES / "line_overrides.csv") as fh:
+        return {(r["season"], r["tab"], r["block"], r["line"]): r for r in csv.DictReader(fh)}
+
+
 def resolve(name, aliases, by_name, id_names):
     k = races.norm(name)
     if k in aliases:
@@ -60,6 +68,7 @@ def build(seasons=None, out_dir=None):
     race_rows, id_names, by_name = races.load(DATA / "races")
     fitness = races.Fitness(race_rows)
     cutoffs = races.load_inference(RULES)
+    overrides = load_overrides()
 
     T = defaultdict(list)  # table name -> rows
     review = T["review"]
@@ -79,9 +88,10 @@ def build(seasons=None, out_dir=None):
             if ws.title not in tab_dates:
                 continue
             _do_sheet(ws, season, book.name, tab_dates[ws.title], types, aliases, ath_notes,
-                      by_name, id_names, fitness, cutoffs, T)
+                      by_name, id_names, fitness, cutoffs, overrides, T)
 
     _days(T)
+    _dt_sessions(T)
     m_rows, m_review = mileage.load(DATA / "mileage", PRIVATE_RULES / "strava_aliases.csv", by_name, id_names)
     T["weekly_mileage"].extend(m_rows)
     T["review"].extend(m_review)
@@ -91,7 +101,7 @@ def build(seasons=None, out_dir=None):
     return T
 
 
-def _do_sheet(ws, season, book, date, types, aliases, ath_notes, by_name, id_names, fitness, cutoffs, T):
+def _do_sheet(ws, season, book, date, types, aliases, ath_notes, by_name, id_names, fitness, cutoffs, overrides, T):
     review = T["review"]
     sheet_key = f"{season}|{ws.title}"
     meta, blocks = parse_sheet(ws)
@@ -122,14 +132,13 @@ def _do_sheet(ws, season, book, date, types, aliases, ath_notes, by_name, id_nam
         bkey = f"{sheet_key}#{b['block_no']}"
         lines = [classify.classify_line(l, season, types, church) for l in b["labels"]]
         assign = classify.assign_reps(b["distances"], lines)
-        # second pass: re-band rep-length-dependent anchors (10K, AT, Threshold Pace).
-        # Prefer the distances the line itself states ("12x400m @ AT" -> 400); fall back to reps assigned to it.
+        # per-line / per-block corrections from rules/line_overrides.csv
         for li, line in enumerate(lines):
-            stated = line["distances"]
-            reps_here = [d for d, (ai, _) in zip(b["distances"], assign) if ai == li]
-            rep_m = max(stated) if stated else (max(reps_here) if reps_here else None)
-            if rep_m:
-                lines[li] = classify.classify_line(b["labels"][li], season, types, church, rep_m=rep_m)
+            o = overrides.get((season, ws.title, str(b["block_no"]), str(li + 1)))
+            if o:
+                line.update(workout_type=o["workout_type"] or line["workout_type"], band=o["band"],
+                            type_rule="override", band_rule=f"override: {o['note']}")
+        block_override = overrides.get((season, ws.title, str(b["block_no"]), ""))
 
         # athletes
         resolved = []
@@ -150,9 +159,9 @@ def _do_sheet(ws, season, book, date, types, aliases, ath_notes, by_name, id_nam
 
         def infer(d, t, mile):
             pct = races.pct_of_mile(t, d, mile)
+            if block_override:
+                return block_override["workout_type"], block_override["band"], pct
             wt, band = races.type_from_pct(pct, d, cutoffs)
-            if band == "DT" and season < classify.DT_FIRST_SEASON:
-                band = "LT"
             return wt, band, pct
 
         inferred = [("", "", None)] * len(b["distances"])
@@ -171,7 +180,8 @@ def _do_sheet(ws, season, book, date, types, aliases, ath_notes, by_name, id_nam
         for li, line in enumerate(lines):
             chip_types.append((line["workout_type"], line["band"]))
             T["prescriptions"].append({
-                "block_key": bkey, "sheet_key": sheet_key, "date": date.isoformat(), "line_no": li + 1,
+                "block_key": bkey, "sheet_key": sheet_key, "date": date.isoformat(), "session_no": session_no or "",
+                "line_no": li + 1,
                 **{k: v for k, v in line.items() if k != "distances"},
                 "n_reps_assigned": sum(1 for ai, _ in assign if ai == li),
             })
@@ -188,7 +198,8 @@ def _do_sheet(ws, season, book, date, types, aliases, ath_notes, by_name, id_nam
             review.append({"issue": "rep_to_label_guess", "season": season, "tab": ws.title, "block": b["block_no"],
                            "detail": f"{guesses} of {len(assign)} reps couldn't be matched to a label line by distance"})
 
-        type_source = "sheet" if lines else ("inferred" if any(w for w, _, _ in inferred) else "none")
+        type_source = "sheet" if lines else ("override" if block_override else
+                                             ("inferred" if any(w for w, _, _ in inferred) else "none"))
         T["blocks"].append({
             "block_key": bkey, "sheet_key": sheet_key, "season": season, "date": date.isoformat(),
             "session_no": session_no or "", "block_no": b["block_no"], "header_row": b["header_row"],
@@ -205,6 +216,7 @@ def _do_sheet(ws, season, book, date, types, aliases, ath_notes, by_name, id_nam
                        for ri, rep in enumerate(a["reps"]) if rep[0] == "timed")
         shared = {k for k, n in vals.items() if n >= 2}
 
+        line_pcts = defaultdict(list)
         for a, aid, canon, how, status in resolved:
             st = Counter(r[0] for r in a["reps"])
             T["athlete_blocks"].append({
@@ -243,13 +255,24 @@ def _do_sheet(ws, season, book, date, types, aliases, ath_notes, by_name, id_nam
                     "rest_after": rest_raw, "rest_after_s": rest_s,
                     "label_line": (li + 1) if line else "", "label_match": how_assigned if line else "",
                     "workout_type": wtype, "band": band,
-                    "type_source": "sheet" if line else ("inferred" if wtype else ""),
+                    "type_source": "sheet" if line else (("override" if block_override else "inferred") if wtype else ""),
                     "target_pct_of_mile": round(pct, 1) if pct else None,
                     "mile_ref_s": round(own_mile, 1) if own_mile else None,
                     "shared_split": int((ri, d, secs) in shared) if status_ == "timed" else 0,
                     "variant_row": int(a["variant"]),
                     "suspect_time": int(suspect),
                 })
+                if line is not None and pct and (not line["distances"] or d in line["distances"]):
+                    line_pcts[li].append(pct)
+
+        # AT now means aerobic threshold (= DT); older sheets sometimes used it for anaerobic work
+        for li, line in enumerate(lines):
+            v = line_pcts.get(li)
+            if line["anchor_from"] == "at" and line["band"].startswith("DT") and line["type_rule"] != "override" and v and statistics.median(v) < AT_CHECK_PCT:
+                review.append({"issue": "at_looks_anaerobic", "season": season, "tab": ws.title, "block": b["block_no"],
+                               "detail": f"line {li+1} '{line['label_raw']}' is classed DT (AT = aerobic), but its targets ran "
+                                         f"{statistics.median(v):.0f}% of mile pace, closer to LT/anaerobic. To re-label: "
+                                         f"rules/line_overrides.csv -> {season},{ws.title},{b['block_no']},{li+1},threshold,LT"})
 
 
 def _days(T):
@@ -278,6 +301,17 @@ def _days(T):
             "chips": " + ".join(chips), "venues": " ; ".join(dict.fromkeys(s["venue"] for s in sheets if s["venue"])),
             "church_loop": int(any(s["church_loop"] for s in sheets)), "n_athletes": len(ath[d]),
         })
+
+
+def _dt_sessions(T):
+    """On double days, DT work is split AM (Session 1, ~2-2.5 mmol) / PM (Session 2, ~2.5-3.5 mmol)."""
+    double = {d["date"] for d in T["days"] if d["double_threshold"]}
+    for table in ("reps", "prescriptions"):
+        for r in T[table]:
+            detail = ""
+            if r["date"] in double and r.get("band", "").startswith("DT"):
+                detail = {1: "DT-AM", 2: "DT-PM"}.get(r["session_no"], "")
+            r["band_detail"] = detail
 
 
 def _write(T, out_dir):

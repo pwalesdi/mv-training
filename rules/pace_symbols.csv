@@ -1,0 +1,7 @@
+anchor,workout_type,band,status,note
+dt,threshold,DT,confirmed,
+lt,threshold,LT,confirmed,LT = anaerobic threshold (Patrick)
+at,threshold,DT,confirmed,"AT = aerobic threshold (Patrick). Older sheets sometimes used AT for anaerobic; the build flags AT lines whose target pace looks anaerobic - fix those in line_overrides.csv"
+threshold,threshold,LT,proposed,"'Threshold Pace' with no race anchor - Claude's guess"
+percent,,,open,"e.g. '@ 90-92.5' - % of race pace, not mapped"
+explicit_pace,,,open,"e.g. '@ 5:30' - a clock pace, not mapped"
