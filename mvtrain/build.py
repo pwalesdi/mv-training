@@ -122,11 +122,14 @@ def _do_sheet(ws, season, book, date, types, aliases, ath_notes, by_name, id_nam
         bkey = f"{sheet_key}#{b['block_no']}"
         lines = [classify.classify_line(l, season, types, church) for l in b["labels"]]
         assign = classify.assign_reps(b["distances"], lines)
-        # second pass: re-band 10K anchors with the rep lengths actually assigned to each line
+        # second pass: re-band rep-length-dependent anchors (10K, AT, Threshold Pace).
+        # Prefer the distances the line itself states ("12x400m @ AT" -> 400); fall back to reps assigned to it.
         for li, line in enumerate(lines):
+            stated = line["distances"]
             reps_here = [d for d, (ai, _) in zip(b["distances"], assign) if ai == li]
-            if reps_here:
-                lines[li] = classify.classify_line(b["labels"][li], season, types, church, rep_m=max(reps_here))
+            rep_m = max(stated) if stated else (max(reps_here) if reps_here else None)
+            if rep_m:
+                lines[li] = classify.classify_line(b["labels"][li], season, types, church, rep_m=rep_m)
 
         # athletes
         resolved = []

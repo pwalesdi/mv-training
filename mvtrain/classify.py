@@ -27,6 +27,34 @@ def load_bands():
         return {r["anchor"]: r for r in csv.DictReader(fh)}
 
 
+_BANDS = None
+
+
+def _bands():
+    global _BANDS
+    if _BANDS is None:
+        _BANDS = load_bands()
+    return _BANDS
+
+
+def type_by_anchor(start, default):
+    """Patrick's categories are defined by race pace, so lactic-family labels are placed by their anchor.
+
+    <=800 RP speed endurance; 1000-2000 RP lactic capacity; 3K-5K RP aerobic power
+    (5K: that's where his own Aerobic Power labels mostly sit); slower -> threshold.
+    """
+    if not start or start[0] != "km":
+        return default, "no race-distance anchor; label default"
+    km = start[1]
+    if km <= 0.8:
+        return "speed_endurance", f"anchor {km:g}K <= 800 RP"
+    if km <= 2.0:
+        return "lactic_capacity", f"anchor {km:g}K in 1000-2000 RP"
+    if km <= 5.0:
+        return "aerobic_power", f"anchor {km:g}K in 3K-5K RP"
+    return "threshold", f"anchor {km:g}K slower than 5K RP"
+
+
 def norm_label(label):
     s = re.sub(r"\s+", " ", label.lower()).strip()
     return s
@@ -48,6 +76,10 @@ def anchors(prescription):
         a = m.group(1).strip(" ,.-")
         if a and not re.fullmatch(r"\d+:\d+", a):
             out.append(a)
+    if not out:  # "1x1600m DT pace" - anchor written without an @
+        m = re.search(r"\b(dt|lt|at|hmp|mp|\d+(?:\.\d+)?k)\s*(?:rp|pace)\b", prescription, re.I)
+        if m:
+            out.append(m.group(0))
     return out
 
 
@@ -105,13 +137,15 @@ def band_for(val, season, rep_m=None, continuous=False):
         return "UNRESOLVED", "no anchor"
     kind, x = val
     if kind == "sym":
-        if x == "dt":
-            band = "DT"
-        elif x == "lt":
-            band = "LT"
-        else:
+        row = _bands().get(x)
+        if not row or not row["band"] or row["band"] == "UNRESOLVED":
             return "UNRESOLVED", f"anchor '{x}' not mapped yet"
-        rule = f"anchor {x.upper()}"
+        band, rule = row["band"], f"anchor {x.upper()}"
+        cut = float(row["short_rep_below_m"]) if row.get("short_rep_below_m") else None
+        if cut and row.get("short_rep_band") and rep_m and rep_m < cut and not continuous:
+            band, rule = row["short_rep_band"], f"anchor {x.upper()}, reps under {cut:g} m"
+        if row.get("status") == "proposed":
+            rule += " (proposed)"
     else:
         km = x
         if km >= 19:
@@ -159,6 +193,9 @@ def classify_line(line, season, types, church=False, rep_m=None):
     anc = anchors(presc)
     start, end, prog = parse_anchor(anc[0]) if anc else (None, None, False)
     band, band_rule = "", ""
+    type_rule = "label"
+    if wtype == "by_anchor":
+        wtype, type_rule = type_by_anchor(start, t.get("default_type") or "UNMAPPED")
     if wtype == "threshold":
         cont = fmt == "continuous"
         # explicit band in the label wins when the anchor is symbolic or missing
@@ -177,6 +214,7 @@ def classify_line(line, season, types, church=False, rep_m=None):
         "label_raw": line,
         "label": label,
         "workout_type": wtype,
+        "type_rule": type_rule,
         "format": fmt,
         "type_status": status,
         "prescription": presc,

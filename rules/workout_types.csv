@@ -1,31 +1,36 @@
-label,workout_type,format,status,note
-threshold intervals,threshold,intervals,confirmed,
-threshold intevals,threshold,intervals,confirmed,typo
-threshold reps,threshold,intervals,confirmed,
-threshold run,threshold,continuous,confirmed,continuous version of threshold intervals (Patrick)
-threshold hills,threshold,hills,confirmed,
-aerobic threshold,threshold,continuous,confirmed,Patrick: aerobic threshold belongs in the threshold-run family
-aerobic threshold intervals,threshold,intervals,confirmed,
-aerobic threshold run,threshold,continuous,confirmed,
-lactate threshold,threshold,intervals,confirmed,
-lactate threshold intervals,threshold,intervals,confirmed,
-lactate threshold interval,threshold,intervals,confirmed,
-anaerobic threshold intervals,threshold,intervals,confirmed,
-anaerobic threshold run,threshold,continuous,confirmed,
-anaerobicthreshold run,threshold,continuous,confirmed,typo
-anerobic threshold run,threshold,continuous,confirmed,typo
-aerobic power,aerobic_power,intervals,confirmed,VO2 / 3K-2 mile RP
-awrobic power,aerobic_power,intervals,confirmed,typo
-lactic capacity,lactic_capacity,intervals,confirmed,1200-2K RP
-lactate capacity,lactic_capacity,intervals,confirmed,
-speed endurance,speed_endurance,intervals,confirmed,800 RP and under
-speed endurace,speed_endurance,intervals,confirmed,typo
-lactate resistance,lactate_resistance,intervals,open,not in Patrick's list yet - keep separate until he maps it
-lacrate resistance,lactate_resistance,intervals,open,typo
-lactic resistance,lactate_resistance,intervals,open,
-lactate tolerance,lactate_tolerance,intervals,open,not in Patrick's list yet
-lactic power,lactic_power,intervals,open,not in Patrick's list yet
-alactic resistance,alactic_resistance,intervals,open,not in Patrick's list yet
-strength endurance,strength_endurance,intervals,open,not in Patrick's list yet
-aerobic run,easy_aerobic,continuous,open,
-aerobic development run,easy_aerobic,continuous,open,
+label,workout_type,default_type,format,status,note
+threshold intervals,threshold,,intervals,confirmed,
+threshold intevals,threshold,,intervals,confirmed,typo
+threshold reps,threshold,,intervals,confirmed,
+threshold run,threshold,,continuous,confirmed,continuous version of threshold intervals (Patrick)
+threshold hills,threshold,,hills,confirmed,
+aerobic threshold,threshold,,continuous,confirmed,Patrick: aerobic threshold belongs in the threshold-run family
+aerobic threshold intervals,threshold,,intervals,confirmed,
+aerobic threshold run,threshold,,continuous,confirmed,
+lactate threshold,threshold,,intervals,confirmed,
+lactate threshold intervals,threshold,,intervals,confirmed,
+lactate threshold interval,threshold,,intervals,confirmed,
+anaerobic threshold,threshold,,intervals,confirmed,
+anerobic threshold,threshold,,intervals,confirmed,typo
+anaerobic threshold intervals,threshold,,intervals,confirmed,
+anaerobic threshold run,threshold,,continuous,confirmed,
+anaerobicthreshold run,threshold,,continuous,confirmed,typo
+anerobic threshold run,threshold,,continuous,confirmed,typo
+aerobic power,aerobic_power,,intervals,confirmed,VO2 / 3K-2 mile RP
+awrobic power,aerobic_power,,intervals,confirmed,typo
+lactic capacity,lactic_capacity,,intervals,confirmed,1200-2K RP
+lactate capacity,lactic_capacity,,intervals,confirmed,
+speed endurance,speed_endurance,,intervals,confirmed,800 RP and under
+speed endurace,speed_endurance,,intervals,confirmed,typo
+lactate resistance,by_anchor,lactic_capacity,intervals,proposed,"Claude's best guess: placed by its race-pace anchor (most are 1200-2K RP -> lactic capacity). Used 2024-26; 'lactic capacity' takes over in 2025-26, so likely the older name."
+lacrate resistance,by_anchor,lactic_capacity,intervals,proposed,typo
+lactic resistance,by_anchor,lactic_capacity,intervals,proposed,
+lactic power,by_anchor,lactic_capacity,intervals,proposed,placed by anchor (600 RP -> speed endurance; 1200/1600 RP -> lactic capacity)
+lactate tolerance,by_anchor,speed_endurance,intervals,proposed,3x150 @ 800 RP -> speed endurance
+alactic resistance,by_anchor,speed_endurance,intervals,proposed,200s/150 @ 500 RP -> speed endurance
+strength endurance,by_anchor,speed_endurance,intervals,proposed,placed by anchor (mixes 3K/mile/800-1K RP)
+vo2 max intervals,by_anchor,aerobic_power,intervals,proposed,2026-27 label; 300s @ 2K RP -> lactic capacity by anchor
+aerobic capacity,by_anchor,aerobic_power,intervals,proposed,2026-27 label; 1600s @ 5K RP -> aerobic power
+hills,hills,,hills,proposed,"Short hill reps (30s/150 m) - own chip, not one of Patrick's categories"
+aerobic run,easy_aerobic,,continuous,open,
+aerobic development run,easy_aerobic,,continuous,open,

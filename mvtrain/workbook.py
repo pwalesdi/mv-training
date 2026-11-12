@@ -121,7 +121,8 @@ def parse_sheet(ws):
             s = a.strip()
             if SESSION_RE.match(s) or parse_name(s) or s.lower().startswith(SUMMARY_PREFIXES) or s.lower().startswith("rest"):
                 continue
-            if re.match(r"^\**\s*notes?\b", s, re.I) or ":" not in s:
+            # "Last, First   600m:" is an athlete-specific note, not a workout label
+            if re.match(r"^\**\s*notes?\b", s, re.I) or ":" not in s or "," in s.split(":")[0]:
                 notes.append(s)
             else:
                 labels.append(s)
