@@ -474,10 +474,10 @@ function trackTable(track) {
   return `<details class="weeks"><summary>All track results (${n}) - by event, oldest first</summary><table class="list"><thead><tr><th>Event</th><th>Date</th><th>Meet</th><th>Race</th><th class="num">Mark</th><th class="num">Place</th><th>PR</th></tr></thead><tbody>${rows}</tbody></table></details>`;
 }
 function xcSection(res) {
+  if (!res.xc.length) return '<p class="muted">No cross-country results.</p>';
   let html = '<h3 class="sub">Same course, different years</h3><p class="muted small">Grouped by meet <b>and</b> distance: when a meet changed its distance (Lowell / SF Invitational) the years aren’t compared. Faster is higher.</p>';
-  if (!res.courses.length) html += `<p class="muted">${res.xc.length ? 'No course run more than once.' : 'No cross-country results.'}</p>`;
+  if (!res.courses.length) html += '<p class="muted">No course run more than once.</p>';
   else html += `<div class="courses">${res.courses.map(courseCard).join('')}</div>`;
-  if (!res.xc.length) return html;
   const rows = res.xc.map(r => `<tr data-secs="${r.seconds ?? ''}"><td class="nowrap">${esc(longDate(r.date))}</td><td>${esc(r.meet)}</td><td class="nowrap">${esc(r.event)}</td><td>${esc(r.race)}</td><td class="num mono">${esc(r.mark)}</td><td class="num">${esc(r.place)}</td><td>${r.varsity_race ? '<span class="badge v">varsity race</span> ' : ''}${r.course ? `<a class="small" href="#" data-course="${esc(r.course)}">same course ↑</a> ` : ''}${r.also ? '<span class="muted small">also in track export</span>' : ''}</td></tr>`).join('');
   return html + `<h3 class="sub">Every cross-country race (${res.xc.length}) - newest first</h3><table class="list xc"><thead><tr><th>Date</th><th>Meet</th><th>Distance</th><th>Race</th><th class="num">Time</th><th class="num">Place</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
 }
