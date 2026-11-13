@@ -16,7 +16,7 @@ double days.
 """
 import re
 
-from .cells import blank, text, to_distance, to_miles, to_seconds
+from .cells import blank, duration_text, text, to_distance, to_miles, to_seconds
 
 NAME_RE = re.compile(r"^\s*([A-Za-z][A-Za-z'\-\. ]*?)\s*,\s*([A-Za-z][A-Za-z'\-\. ]*?)\s*(\(.*\))?\s*$")
 SESSION_RE = re.compile(r"^\s*session\s*(\d)\s*:?\s*(.*)$", re.I)
@@ -191,7 +191,7 @@ def parse_sheet(ws):
                 })
                 end = r
             elif re.match(r"^rest\s*:?\s*$", sa):
-                rest_raw = [text(row[c]) for c in rep_cols]
+                rest_raw = [duration_text(row[c]) for c in rep_cols]
                 rest_secs = [to_seconds(row[c]) for c in rep_cols]
                 end = r
             elif sa.startswith("total vol"):

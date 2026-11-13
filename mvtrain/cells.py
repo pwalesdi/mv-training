@@ -74,3 +74,20 @@ def text(v):
     if isinstance(v, dt.time):
         return v.strftime("%H:%M")
     return str(v).strip()
+
+
+def duration_text(v):
+    """Rest/duration cell -> text the way the sheet reads: '0:45', '1:30', '3:00', '0:56.4'.
+
+    Excel stores these as times of day, so text() would print 0:45 as '00:00'.
+    Tenths are kept only when the sheet has them (timed rests); anything that
+    isn't a time ('200j + 1:30') goes through text() unchanged.
+    """
+    if not isinstance(v, (dt.time, dt.timedelta)):
+        return text(v)
+    tenths = round(to_seconds(v) * 10)
+    secs, tenth = divmod(tenths, 10)
+    mins, s = divmod(secs, 60)
+    h, m = divmod(mins, 60)
+    out = f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+    return out + (f".{tenth}" if tenth else "")
