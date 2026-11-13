@@ -149,7 +149,8 @@ function dayCell(iso, d, info) {
   const chips = info.chips.slice(0, MAX).map(chipHtml).join('')
     + (info.chips.length > MAX ? `<span class="more">+${info.chips.length - MAX} more</span>` : '');
   const races = info.races.map(r => `<span class="racename" title="${esc(r.meet)} · ${r.n} athlete${r.n === 1 ? '' : 's'}">${esc(r.meet)}</span>`).join('');
-  const quiet = info.practice && !info.groups ? `<span class="quiet">${info.hidden_groups ? 'no varsity groups' : 'no groups listed'}</span>` : '';
+  const quiet = info.practice && !info.groups ? `<span class="quiet">${info.hidden_groups ? 'no varsity groups' : 'no groups listed'}</span>`
+    : info.groups && !info.chips.length ? `<span class="quiet">${info.groups} group${info.groups === 1 ? '' : 's'} · no type</span>` : '';
   const label = `${fmtDateLong(iso)}: ${info.chips.map(c => c.label + (c.src === 'inferred' ? ' (inferred)' : '')).join(', ') || 'no workout chips'}`;
   return `<a class="cell has" href="#/day/${iso}" aria-label="${esc(label)}"><div class="top-row"><span class="dnum">${d}</span>${b.join('')}</div><div class="chips">${chips}</div>${races}${quiet}</a>`;
 }
