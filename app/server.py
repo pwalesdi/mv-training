@@ -471,11 +471,19 @@ class Data:
                           "race_kind": r["kind"], "url": r["source_url"],
                           "varsity_race": is_xc_varsity(r)})
         items.sort(key=lambda x: (x["date"], 0 if x["kind"] == "race" else 1, str(x.get("session_no", ""))), reverse=True)
-        mileage = [m for m in self.mileage_by_athlete.get(e["athlete_id"], []) if not season or season_of(m["week_start"]) == season]
-        return {**self.head(key), "items": items,
-                "mileage": sorted(({"week_start": m["week_start"], "week_end": m["week_end"], "miles": m["miles"],
-                                    "partial": bool(m["partial_week"]), "note": m["week_note"]} for m in mileage),
-                                  key=lambda m: m["week_start"])}
+        return {**self.head(key), "items": items}
+
+    def athlete_mileage(self, key):
+        """Every Strava week for the athlete, all seasons (joined on the Athletic.net ID). Weeks with no row
+        stay missing - nothing is filled in from the workbooks."""
+        if key not in self.athletes:
+            return None
+        head = self.head(key)
+        rows = sorted(self.mileage_by_athlete.get(head["athlete_id"], []), key=lambda m: m["week_start"]) if head["athlete_id"] else []
+        weeks = [{"week_start": m["week_start"], "week_end": m["week_end"], "miles": m["miles"],
+                  "partial": bool(m["partial_week"]), "note": m["week_note"] or "", "source": m["source_file"]} for m in rows]
+        span = (min(m["week_start"] for m in self.mileage), max(m["week_end"] for m in self.mileage)) if self.mileage else None
+        return {"athlete": head, "weeks": weeks, "all_weeks_span": span, "n_athletes_with_mileage": len(self.mileage_by_athlete)}
 
     def workout_combos(self):
         """Picker entries with the number of distinct groups (blocks), all athletes:
@@ -635,6 +643,13 @@ def create_app(db_path=DB):
     @app.get("/api/athlete/calendar")
     def api_athlete_calendar():
         res = data().athlete_calendar(request.args.get("key", ""), request.args.get("season") or None)
+        if res is None:
+            abort(404)
+        return jsonify(res)
+
+    @app.get("/api/athlete/mileage")
+    def api_athlete_mileage():
+        res = data().athlete_mileage(request.args.get("key", ""))
         if res is None:
             abort(404)
         return jsonify(res)

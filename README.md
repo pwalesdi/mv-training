@@ -13,7 +13,7 @@ rules/       editable decisions: workout types, pace bands, inference cutoffs
 data/        NOT in git - workbooks, race CSVs, and the built database
   workbooks/   MV_Workouts.YYZZ.xlsx (one per season, e.g. 2526 = 2025-26)
   races/       Athletic.net exports (MV_XC_*.csv, MV_TF_*.csv)
-  mileage/     weekly mileage exports from the Strava group (weeks x athletes)
+  mileage/     weekly mileage exports from Strava (wide weeks x athletes, or one row per athlete-week)
   rules/       aliases.csv, athletes.csv, strava_aliases.csv
   build/       output: training.sqlite + CSVs (regenerated every run)
 ```
@@ -49,10 +49,53 @@ workouts):
   opens the day view with their row highlighted (shown even under the varsity filter), and
   prev / next there step through their days.
 - **History**: the timeline - sessions with every split, races, filters by season and type.
+- **Mileage**: Strava weekly miles (Monday-Sunday) across every season in `data/mileage/`.
+  Season starts (1 July) are marked, partial weeks are lighter, and weeks with no data are
+  shaded and left empty - never filled from workbook volume. Hover (or focus the chart and use
+  the arrow keys) for each week; per-season totals and every week are in tables below.
+
+`python -m app --db other/training.sqlite --port 5051` runs it on another build (e.g. a test).
 
 Updating during a season: save the current workbook into `data/workbooks/`
 (same file name pattern), drop any new Athletic.net exports into `data/races/`,
 and re-run. The build is from scratch every time and never edits the workbooks.
+
+## Weekly mileage files (`data/mileage/`)
+
+Every `.csv` in `data/mileage/` is read. When two files have the same athlete-week, the newer
+file (by modified time) wins. Two layouts work; the build tells them apart by the header row.
+
+- **Wide** (what the Strava group pull makes now): one row per Monday-Sunday week, one column
+  per athlete (Strava display name).
+  ```
+  week_start_mon,week_end_sun,Jane D,Alex Smith
+  2026-08-03,2026-08-09,44.42,38.10
+  2026-11-09,2026-11-15 (in progress, thru Nov 9),5.50,0.00
+  ```
+  A note in parentheses after a date marks a partial week. Rows that don't start with a date
+  (the averages / peak / totals footer) are skipped. A column headed `note` is a note for the
+  week (kept, shown on hover), not an athlete; its text doesn't mark the week partial.
+- **Long**: one row per athlete-week.
+  ```
+  name,week_start,miles,partial_week,note
+  Jane D,2026-08-03,44.42,,
+  Jane D,2026-11-09,5.5,1,in progress
+  ```
+  Required: `name` (or `athlete` / `strava_name`), `week_start` (or `week` / `week_of`),
+  `miles` (or `mi`). Optional: `week_end` (default week_start + 6 days), `partial_week`
+  (1 / yes / true), `note`. A note in parentheses after a date also marks the week partial.
+
+Dates are YYYY-MM-DD (M/D/YYYY also works). Weeks should start on a Monday; other start days
+are kept and listed in review.csv, as are rows listed twice and files whose header isn't
+recognised. Names are matched through `data/rules/strava_aliases.csv`, then by exact
+Athletic.net name. A name that doesn't match goes to review.csv (`unmatched_strava_name`) with
+possible matches (same first name, last name starting with the Strava name's last word, raced
+within a season of those weeks); nothing is matched automatically - add a row to
+`strava_aliases.csv` to accept one. Mileage is joined to athletes by Athletic.net ID, so an
+athlete without one (most of 2019-20) can't show mileage.
+
+To try a folder of exports without touching `data/mileage/`:
+`python -m mvtrain.build --mileage /path/to/folder --out /path/to/test-build`.
 
 ## What comes out (`data/build/`)
 

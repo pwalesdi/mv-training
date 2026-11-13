@@ -1,7 +1,7 @@
 'use strict';
 /* MV Training prototype - plain JS. Routes:
    #/calendar[/<season>][?m=YYYY-MM]   #/day/<date>[?a=<athlete key to highlight>]
-   #/athletes                          #/athletes/<key>[?tab=calendar|history&season=&m=&cat=]
+   #/athletes                          #/athletes/<key>[?tab=calendar|history|mileage&season=&m=&cat=]
    #/workouts[/<combo>]     */
 
 const main = document.getElementById('main');
@@ -100,6 +100,7 @@ function parseHash() {
 }
 async function route() {
   const { view, parts, q } = parseHash();
+  Charts.reset();
   document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('on', a.dataset.nav === (view === 'day' ? 'calendar' : view)));
   document.querySelectorAll('[data-filter]').forEach(b => b.classList.toggle('on', b.dataset.filter === filter));
   try {
@@ -285,7 +286,7 @@ async function viewAthletes(q) {
   document.getElementById('season').addEventListener('change', e => { location.hash = `#/athletes${e.target.value ? `?season=${e.target.value}` : ''}`; });
   draw();
 }
-const ATHLETE_TABS = [['calendar', 'Calendar'], ['history', 'History']];
+const ATHLETE_TABS = [['calendar', 'Calendar'], ['history', 'History'], ['mileage', 'Mileage']];
 function athleteUrl(key, params) {
   const p = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) if (v && !(k === 'tab' && v === 'calendar')) p.set(k, v);
@@ -301,6 +302,7 @@ function athleteHead(a, key, tab, season) {
 async function viewAthlete(key, q) {
   const tab = q.get('tab') || 'calendar';
   if (tab === 'history') return athleteHistory(key, q);
+  if (tab === 'mileage') return athleteMileage(key, q);
   return athleteCalendar(key, q);
 }
 async function athleteCalendar(key, q) {
@@ -355,7 +357,6 @@ async function athleteHistory(key, q) {
   let html = athleteHead(a, key, 'history', season) + `
     <div class="bar"><select id="season" aria-label="Season">${sOpts}</select><select id="cat" aria-label="Category">${cOpts}</select>
     <span class="muted small">${sessions} session${sessions === 1 ? '' : 's'} · ${races} race${races === 1 ? '' : 's'}${cat ? ' (races always shown)' : ''}</span></div>`;
-  if (a.mileage.length) html += mileageChart(a.mileage);
   html += timeline(a.items, key);
   main.innerHTML = html;
   const go = () => {
@@ -364,6 +365,63 @@ async function athleteHistory(key, q) {
   document.getElementById('season').addEventListener('change', go);
   document.getElementById('cat').addEventListener('change', go);
   window.scrollTo(0, 0);
+}
+const chartWidth = () => Math.max(360, Math.min(1440, (main.clientWidth || 960) - 40 - 26));
+const fmtMi = v => (v === null || v === undefined || v === '') ? '' : String(+Number(v).toFixed(2));
+async function athleteMileage(key, q) {
+  const res = await api(`/api/athlete/mileage?key=${enc(key)}`);
+  const a = res.athlete, weeks = res.weeks;
+  let html = athleteHead(a, key, 'mileage', q.get('season') || '');
+  const span = res.all_weeks_span ? `Strava data so far covers ${fmtDateShort(res.all_weeks_span[0])}, ${res.all_weeks_span[0].slice(0, 4)} – ${fmtDateShort(res.all_weeks_span[1])}, ${res.all_weeks_span[1].slice(0, 4)} for ${res.n_athletes_with_mileage} athletes.` : 'No Strava mileage has been loaded yet.';
+  if (!weeks.length) {
+    html += `<p>${a.athlete_id ? `No Strava weekly mileage for ${esc(a.name)}.` : `${esc(a.name)} isn’t matched to an Athletic.net ID, and Strava mileage is matched through that ID (data/rules/strava_aliases.csv), so none can be shown.`}</p><p class="muted small">${span} Weeks without Strava data are left empty - the workbook volume is never used to fill them.</p>`;
+    main.innerHTML = html;
+    window.scrollTo(0, 0);
+    return;
+  }
+  const first = weeks[0], last = weeks[weeks.length - 1];
+  html += `<div class="chart"><h3>Weekly mileage</h3>
+    <p class="muted small">Strava, Monday–Sunday weeks, ${weeks.length} week${weeks.length === 1 ? '' : 's'} from ${fmtDateShort(first.week_start)}, ${first.week_start.slice(0, 4)} to ${fmtDateShort(last.week_end)}, ${last.week_end.slice(0, 4)}. Hover (or focus and use ← →) for each week.</p>
+    <div class="chartkey"><span><i class="k-bar"></i>miles in the week</span><span><i class="k-bar partial"></i>partial week</span><span><i class="k-gap"></i>no data (left empty)</span><span><i class="k-season"></i>season starts 1 July</span></div>
+    ${Charts.mileage(weeks, chartWidth())}</div>`;
+  html += mileageSeasons(weeks) + mileageWeeks(weeks);
+  html += `<p class="muted small">${span} Weeks without Strava data stay empty - the workbook volume is never used to fill them.</p>`;
+  main.innerHTML = html;
+  Charts.wire(main);
+  window.scrollTo(0, 0);
+}
+function mileageSeasons(weeks) {
+  const by = new Map();
+  for (const w of weeks) {
+    const s = Charts.seasonName(Charts.ms(w.week_start));
+    if (!by.has(s)) by.set(s, []);
+    by.get(s).push(w);
+  }
+  const rows = [...by.entries()].reverse().map(([s, ws]) => {
+    const full = ws.filter(w => !w.partial), total = ws.reduce((t, w) => t + Number(w.miles), 0);
+    const avg = full.length ? full.reduce((t, w) => t + Number(w.miles), 0) / full.length : null;
+    const peak = full.reduce((p, w) => (!p || Number(w.miles) > Number(p.miles) ? w : p), null);
+    return `<tr><td>${esc(s)}</td><td class="num">${ws.length}</td><td class="num">${ws.length - full.length}</td><td class="num">${total.toFixed(1)}</td>
+      <td class="num">${avg === null ? '–' : avg.toFixed(1)}</td><td class="num">${peak ? esc(fmtMi(peak.miles)) : '–'}</td><td>${peak ? `${fmtDateShort(peak.week_start)}, ${peak.week_start.slice(0, 4)}` : ''}</td></tr>`;
+  }).join('');
+  return `<h3 class="sub">By season</h3><table class="list mileage-seasons"><thead><tr><th>Season</th><th class="num">Weeks with data</th><th class="num">Partial weeks</th><th class="num">Total mi</th><th class="num">Avg full week</th><th class="num">Peak full week</th><th>Peak week starts</th></tr></thead><tbody>${rows}</tbody></table>
+    <p class="muted small">Seasons run 1 July - 30 June; a week counts in the season it starts in. Averages and peaks use full weeks only.</p>`;
+}
+function mileageWeeks(weeks) {
+  const DAY = Charts.DAY, out = [];
+  for (let i = weeks.length - 1; i >= 0; i--) {
+    const w = weeks[i];
+    out.push(`<tr data-week="${esc(w.week_start)}"><td class="nowrap">${fmtDateShort(w.week_start)} – ${fmtDateShort(w.week_end)}, ${w.week_end.slice(0, 4)}</td><td class="num">${esc(fmtMi(w.miles))}</td><td>${w.partial ? `partial${w.note ? ': ' + esc(w.note) : ''}` : esc(w.note)}</td><td class="muted small">${esc(w.source)}</td></tr>`);
+    if (i > 0) {  // the weeks missing between this one and the one before it
+      const end = Charts.ms(weeks[i - 1].week_start) + 7 * DAY, next = Charts.ms(w.week_start);
+      const n = Math.round((next - end) / (7 * DAY));
+      if (next - end >= 6.5 * DAY) {
+        const a = new Date(end).toISOString().slice(0, 10), b = new Date(next - DAY).toISOString().slice(0, 10);
+        out.push(`<tr class="gaprow"><td class="nowrap">${fmtDateShort(a)} – ${fmtDateShort(b)}, ${b.slice(0, 4)}</td><td class="num">–</td><td>no data (${n} week${n === 1 ? '' : 's'})</td><td></td></tr>`);
+      }
+    }
+  }
+  return `<details class="weeks"><summary>Every week (${weeks.length}) - newest first</summary><table class="list"><thead><tr><th>Week (Mon–Sun)</th><th class="num">Miles</th><th>Note</th><th>File</th></tr></thead><tbody>${out.join('')}</tbody></table></details>`;
 }
 function comboOptions() {  // built by the server, counts are distinct groups
   return WTYPES.map(w => ({ combo: w.combo, label: w.label, n: w.blocks }));
@@ -390,26 +448,6 @@ function timeline(items, key) {
   }
   return html + '</ul>';
 }
-function mileageChart(rows) {
-  // drawn at the container's pixel width so axis text stays 11px instead of scaling with the viewBox
-  const W = Math.max(420, Math.min(1400, (main.clientWidth || 900) - 60)), H = 170, L = 34, R = 8, T = 12, B = 24;
-  const max = Math.max(10, ...rows.map(r => r.miles));
-  const top = Math.ceil(max / 10) * 10;
-  const y = v => T + (H - T - B) * (1 - v / top);
-  const bw = (W - L - R) / rows.length;
-  const grid = [0, top / 2, top].map(v => `<g class="grid"><line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/></g><g class="axis"><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text></g>`).join('');
-  const bars = rows.map((r, i) => {
-    const x = L + i * bw + 1, w = Math.max(2, bw - 2), yy = y(r.miles), base = y(0), rad = Math.min(4, w / 2, base - yy);
-    const d = `M${x},${base}V${yy + rad}Q${x},${yy} ${x + rad},${yy}H${x + w - rad}Q${x + w},${yy} ${x + w},${yy + rad}V${base}Z`;
-    const tipText = `Week of ${fmtDateShort(r.week_start)}: ${r.miles} mi${r.partial ? ` (partial week${r.note ? ': ' + r.note : ''})` : ''}`;
-    const lbl = i % Math.ceil(rows.length / 10) === 0 ? `<text x="${x + w / 2}" y="${H - 6}" text-anchor="middle">${esc(fmtDateShort(r.week_start).replace(/^\w+, /, ''))}</text>` : '';
-    return `<path class="bar${r.partial ? ' partial' : ''}" d="${d}" data-tip="${esc(tipText)}"/><rect x="${L + i * bw}" y="${T}" width="${bw}" height="${H - T - B}" fill="transparent" data-tip="${esc(tipText)}"/><g class="axis">${lbl}</g>`;
-  }).join('');
-  const table = `<details><summary>Show as table</summary><table class="list"><thead><tr><th>Week</th><th>Miles</th><th>Note</th></tr></thead><tbody>${
-    rows.map(r => `<tr><td>${esc(r.week_start)} – ${esc(r.week_end)}</td><td>${esc(r.miles)}</td><td>${r.partial ? `partial${r.note ? ': ' + esc(r.note) : ''}` : ''}</td></tr>`).join('')}</tbody></table></details>`;
-  return `<div class="chart"><h3>Weekly mileage (Strava)</h3><p class="muted small">Dashed outline = partial week.</p><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Weekly mileage bar chart">${grid}${bars}</svg>${table}</div>`;
-}
-
 /* ---------- workouts ---------- */
 function groupNames(r) {  // every athlete in the group links to their calendar at that month
   const link = g => `<a href="${athleteHref(g.key, { season: r.season, date: r.date })}">${esc(g.name)}</a>`;
@@ -439,6 +477,7 @@ async function viewWorkouts(combo) {
 
 /* ---------- tooltip for chart marks ---------- */
 document.addEventListener('mousemove', e => {
+  if (e.target.closest && e.target.closest('svg[data-chart]')) return;  // charts.js drives the tip there
   const t = e.target.closest && e.target.closest('[data-tip]');
   if (!t) { tip.hidden = true; return; }
   tip.textContent = t.getAttribute('data-tip');

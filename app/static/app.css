@@ -4,7 +4,7 @@
   color-scheme: light;
   --bg: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
   --line: #e1e0d9; --line-2: #c3c2b7; --chip-bg: #f0efec; --hover: #f0efec; --link: #1c5cab;
-  --warn: #d03b3b; --ok: #006300; --hl: #fbf0c9; --hl-edge: #b98a00;
+  --warn: #d03b3b; --ok: #006300; --hl: #fbf0c9; --hl-edge: #b98a00; --gap: rgba(137, 135, 129, .13);
   --c-threshold: #2a78d6; --c-lactate_resistance: #eb6834; --c-aerobic_power: #1baf7a;
   --c-lactic_capacity: #eda100; --c-speed_endurance: #e87ba4; --c-easy_aerobic: #008300;
   --c-hills: #6250d6; --c-other: #898781;
@@ -14,7 +14,7 @@
     color-scheme: dark;
     --bg: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
     --line: #2c2c2a; --line-2: #383835; --chip-bg: #262624; --hover: #262624; --link: #86b6ef;
-    --warn: #e66767; --ok: #0ca30c; --hl: #3a3218; --hl-edge: #e0b33a;
+    --warn: #e66767; --ok: #0ca30c; --hl: #3a3218; --hl-edge: #e0b33a; --gap: rgba(195, 194, 183, .10);
     --c-threshold: #3987e5; --c-lactate_resistance: #d95926; --c-aerobic_power: #199e70;
     --c-lactic_capacity: #c98500; --c-speed_endurance: #d55181; --c-easy_aerobic: #008300;
     --c-hills: #9085e9; --c-other: #898781;
@@ -172,12 +172,35 @@ details.names { font-size: 12px; } details.names summary { font-size: 12px; }
 
 /* mileage chart */
 .chart { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 10px 0; }
-.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
-.chart .bar { fill: var(--c-threshold); }
-.chart .bar.partial { fill: transparent; stroke: var(--c-threshold); stroke-dasharray: 3 2; }
-.chart .grid line { stroke: var(--line); }
-.chart .axis text { fill: var(--muted); font-size: 11px; }
-.chart .val { fill: var(--ink-2); font-size: 11px; }
+.chart h3 { margin-bottom: 2px; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; margin-top: 4px; }
+.chart svg:focus { outline: none; }
+.chart svg:focus-visible { outline: 2px solid var(--link); outline-offset: 3px; border-radius: 4px; }
+.chart .gl { stroke: var(--line); }
+.chart .base, .chart .tick { stroke: var(--line-2); }
+.chart text.ax { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.chart .mbar { fill: var(--c-threshold); }
+.chart .mbar.partial { fill-opacity: .35; }
+.chart .mbar.on { stroke: var(--ink); stroke-width: 1.5; }
+.chart .gap { fill: var(--gap); }
+.chart .gaplbl { fill: var(--muted); font-size: 11px; }
+.chart .season { stroke: var(--muted); }
+.chart .seasonlbl { fill: var(--ink-2); font-size: 11px; font-weight: 600; }
+.chart .xhair { stroke: var(--ink-2); pointer-events: none; }
+.chart .hit { fill: transparent; cursor: crosshair; }
+.chartkey { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--ink-2); margin: 6px 0 2px; }
+.chartkey i { display: inline-block; width: 12px; height: 10px; margin-right: 5px; vertical-align: -1px; border-radius: 2px; }
+.chartkey .k-bar { background: var(--c-threshold); }
+.chartkey .k-bar.partial { opacity: .35; }
+.chartkey .k-gap { background: var(--gap); box-shadow: inset 0 0 0 1px var(--line); }
+.chartkey .k-season { width: 0; height: 13px; border-left: 1px solid var(--muted); border-radius: 0; margin-right: 6px; vertical-align: -2px; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+h3.sub { margin: 18px 0 6px; }
+tr.gaprow td { color: var(--muted); background: var(--gap); }
+details.weeks { margin: 14px 0; }
+details.weeks table { margin-top: 6px; }
+.tip .tv { font-weight: 600; font-size: 13px; }
+.tip .tn { opacity: .85; }
 .tip {
   position: fixed; z-index: 50; pointer-events: none; background: var(--ink); color: var(--surface);
   font-size: 12px; padding: 4px 8px; border-radius: 4px; max-width: 280px;

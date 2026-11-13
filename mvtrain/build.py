@@ -118,7 +118,7 @@ def resolve(name, aliases, by_name, id_names, plain=False):
     return "", name, "unmatched"
 
 
-def build(seasons=None, out_dir=None):
+def build(seasons=None, out_dir=None, mileage_dir=None):
     out_dir = Path(out_dir or DATA / "build")
     out_dir.mkdir(parents=True, exist_ok=True)
     types = classify.load_types()
@@ -170,7 +170,8 @@ def build(seasons=None, out_dir=None):
 
     _days(T)
     _dt_sessions(T)
-    m_rows, m_review = mileage.load(DATA / "mileage", PRIVATE_RULES / "strava_aliases.csv", by_name, id_names)
+    m_rows, m_review = mileage.load(Path(mileage_dir or DATA / "mileage"), PRIVATE_RULES / "strava_aliases.csv",
+                                    by_name, id_names, race_rows)
     T["weekly_mileage"].extend(m_rows)
     T["review"].extend(m_review)
     for r in race_rows:
@@ -440,8 +441,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--seasons", nargs="*", help="e.g. 2526 2425 (default: all workbooks)")
     ap.add_argument("--out", help="output folder (default data/build)")
+    ap.add_argument("--mileage", help="folder of Strava weekly-mileage CSVs (default data/mileage)")
     args = ap.parse_args()
-    T = build(set(args.seasons) if args.seasons else None, args.out)
+    T = build(set(args.seasons) if args.seasons else None, args.out, args.mileage)
     print(f"sheets {len(T['sheets'])}  blocks {len(T['blocks'])}  athlete-blocks {len(T['athlete_blocks'])}  "
           f"reps {len(T['reps'])}  days {len(T['days'])}  review items {len(T['review'])}")
     for issue, n in Counter(r["issue"] for r in T["review"]).most_common():
