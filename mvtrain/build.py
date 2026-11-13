@@ -254,7 +254,7 @@ def _do_sheet(ws, season, book, date, types, aliases, ath_notes, by_name, id_nam
                 "block_key": bkey, "sheet_key": sheet_key, "date": date.isoformat(), "session_no": session_no or "",
                 "line_no": li + 1,
                 **{k: v for k, v in line.items() if k != "distances"},
-                "n_reps_assigned": sum(1 for ai, _ in assign if ai == li),
+                "n_reps_assigned": sum(1 for ai, how in assign if ai == li and how != "guess"),
             })
             if line["type_status"] in ("open", "unmapped"):
                 review.append({"issue": "type_not_mapped", "season": season, "tab": ws.title, "block": b["block_no"],
@@ -267,7 +267,8 @@ def _do_sheet(ws, season, book, date, types, aliases, ath_notes, by_name, id_nam
         guesses = sum(1 for _, how in assign if how == "guess")
         if guesses:
             review.append({"issue": "rep_to_label_guess", "season": season, "tab": ws.title, "block": b["block_no"],
-                           "detail": f"{guesses} of {len(assign)} reps couldn't be matched to a label line by distance"})
+                           "detail": f"{guesses} of {len(assign)} reps aren't mentioned by any label line; "
+                                     f"typed from target pace (type_source=inferred)"})
 
         type_source = "sheet" if lines else ("override" if block_override else
                                              ("inferred" if any(w for w, _, _ in inferred) else "none"))
@@ -306,7 +307,9 @@ def _do_sheet(ws, season, book, date, types, aliases, ath_notes, by_name, id_nam
                     li, how_assigned = assign[ri]
                 else:  # extra rep from a one-athlete variant row
                     li, how_assigned = (len(lines) - 1, "variant row") if lines else (None, "")
-                line = lines[li] if li is not None and lines else None
+                # a rep no label line mentions is typed from its target pace, not from the line above it (Patrick)
+                unmentioned = how_assigned == "guess"
+                line = lines[li] if li is not None and lines and not unmentioned else None
                 own_mile = athlete_mile.get(aid) or group_mile
                 pct = races.pct_of_mile(tgt, d, own_mile)
                 inf = infer(d, tgt, own_mile) if not line else ("", "", None)
@@ -324,7 +327,8 @@ def _do_sheet(ws, season, book, date, types, aliases, ath_notes, by_name, id_nam
                     "target_s": round(tgt, 2) if tgt else None, "actual_s": round(secs, 2) if secs else None,
                     "status": status_, "raw": raw if status_ != "timed" else "",
                     "rest_after": rest_raw, "rest_after_s": rest_s,
-                    "label_line": (li + 1) if line else "", "label_match": how_assigned if line else "",
+                    "label_line": (li + 1) if line else "",
+                    "label_match": how_assigned if line else ("not in any label" if unmentioned else ""),
                     "workout_type": wtype, "band": band,
                     "type_source": "sheet" if line else (("override" if block_override else "inferred") if wtype else ""),
                     "target_pct_of_mile": round(pct, 1) if pct else None,
