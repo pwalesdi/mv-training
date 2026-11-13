@@ -49,6 +49,13 @@ and re-run. The build is from scratch every time and never edits the workbooks.
 - The **tab name is the date**; the date written in the sheet is only checked against it.
 - **Church loop** = 1725 m. Venue "Church" or any 1725 m rep means the church loop.
 - **Double threshold day** = a 2025-26+ day with Session 1 and Session 2.
+- A rep belongs to a label line that states its distance, within ~2% (2.0 miles = the
+  3200 column). A continuous line ("2.0 miles continuous", "3 Lap Threshold Run",
+  "Threshold Run: 6 Laps") owns all of its split columns.
+- A rep no label line mentions is typed from its target pace, marked `inferred`.
+  Inference is per rep, from the block's median mile fitness, so every athlete gets
+  the same type for the same rep. With no target or no race marks it takes the type
+  of the line above, still marked `inferred`.
 - Categories and pace bands (speed endurance / lactic capacity / aerobic power /
   lactate resistance / LT / DT) are in `rules/README.md`. Any single day can be
   corrected in `rules/line_overrides.csv`.

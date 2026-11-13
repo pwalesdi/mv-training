@@ -253,7 +253,7 @@ def _do_sheet(ws, season, book, date, types, aliases, ath_notes, by_name, id_nam
             T["prescriptions"].append({
                 "block_key": bkey, "sheet_key": sheet_key, "date": date.isoformat(), "session_no": session_no or "",
                 "line_no": li + 1,
-                **{k: v for k, v in line.items() if k != "distances"},
+                **{k: v for k, v in line.items() if k not in ("distances", "continuous")},
                 "n_reps_assigned": sum(1 for ai, how in assign if ai == li and how != "guess"),
             })
             if line["type_status"] in ("open", "unmapped"):
@@ -311,10 +311,15 @@ def _do_sheet(ws, season, book, date, types, aliases, ath_notes, by_name, id_nam
                 unmentioned = how_assigned == "guess"
                 line = lines[li] if li is not None and lines and not unmentioned else None
                 own_mile = athlete_mile.get(aid) or group_mile
-                pct = races.pct_of_mile(tgt, d, own_mile)
-                inf = infer(d, tgt, own_mile) if not line else ("", "", None)
+                pct = races.pct_of_mile(tgt, d, own_mile)  # reported per athlete
+                # inference is per rep, from the block's group fitness: same rep, same type for everyone (Patrick)
+                inf = infer(d, tgt, group_mile) if not line else ("", "", None)
                 wtype = line["workout_type"] if line else inf[0]
                 band = line["band"] if line else inf[1]
+                # no target / no race marks: take the line above rather than leave it untyped - still inferred
+                fallback = unmentioned and not wtype and li is not None
+                if fallback:
+                    wtype, band = lines[li]["workout_type"], lines[li]["band"]
                 rest_raw = b["rest_raw"][ri] if ri < len(b["rest_raw"]) else ""
                 rest_s = b["rest_secs"][ri] if ri < len(b["rest_secs"]) else None
                 suspect = bool(secs and d and secs >= 3600 and d < 10000)
@@ -328,7 +333,8 @@ def _do_sheet(ws, season, book, date, types, aliases, ath_notes, by_name, id_nam
                     "status": status_, "raw": raw if status_ != "timed" else "",
                     "rest_after": rest_raw, "rest_after_s": rest_s,
                     "label_line": (li + 1) if line else "",
-                    "label_match": how_assigned if line else ("not in any label" if unmentioned else ""),
+                    "label_match": how_assigned if line else (
+                        (f"not in any label; type from line {li + 1}" if fallback else "not in any label") if unmentioned else ""),
                     "workout_type": wtype, "band": band,
                     "type_source": "sheet" if line else (("override" if block_override else "inferred") if wtype else ""),
                     "target_pct_of_mile": round(pct, 1) if pct else None,
@@ -337,7 +343,7 @@ def _do_sheet(ws, season, book, date, types, aliases, ath_notes, by_name, id_nam
                     "variant_row": int(a["variant"]),
                     "suspect_time": int(suspect),
                 })
-                if line is not None and pct and (not line["distances"] or d in line["distances"]):
+                if line is not None and pct and (not line["distances"] or classify.mentions(line, d)):
                     line_pcts[li].append(pct)
 
         # AT now means aerobic threshold (= DT); older sheets sometimes used it for anaerobic work

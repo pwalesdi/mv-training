@@ -207,7 +207,53 @@ def classify_line(line, season, types, church=False, rep_m=None):
         "band": band,
         "band_rule": band_rule,
         "distances": label_distances(presc, church),
+        "continuous": continuous_total(label, presc),
     }
+
+
+TOL = 0.02  # a rep matches a distance a line states within 2% (2.0 miles = 3219 m -> the 3200 column) (Patrick)
+
+
+def mentions(line, d):
+    """Does this label line state a distance within TOL of d?"""
+    return d is not None and any(abs(d - x) <= TOL * x for x in line["distances"])
+
+
+def continuous_total(label, presc):
+    """(low, high) metres for a continuous line - 'x miles continuous', 'N lap(s) ... run', or a '... run'
+    label with a plain distance ('Threshold Run: 6 Laps') - else None. Reps ('5 x Lap') aren't continuous."""
+    s = presc.lower()
+    if not (re.search(r"\bcontinuous\b", s) or re.search(r"\d\s*laps?\b[\w\s]*\brun\b", s)
+            or (label.endswith(" run") and not re.search(r"\d\s*x", s))):
+        return None
+    s = ANCHOR_SEG.sub(" ", s)
+    m = re.search(r"(\d+(?:\.\d+)?)(?:\s*-\s*(\d+(?:\.\d+)?))?\s*(?:mi|miles?)\b", s)
+    if m:
+        return float(m.group(1)) * 1609.34, float(m.group(2) or m.group(1)) * 1609.34
+    m = re.search(r"(\d+)(?:\s*-\s*(\d+))?\s*laps?\b", s)
+    if m:
+        return int(m.group(1)) * CHURCH_LAP_M, int(m.group(2) or m.group(1)) * CHURCH_LAP_M
+    m = re.search(r"(\d{3,5})\s*m\b", s)
+    if m:
+        return float(m.group(1)), float(m.group(1))
+    return None
+
+
+def continuous_span(distances, start, total):
+    """How many columns from `start` make up one continuous run of length `total` (low, high): cumulative
+    splits (400, 800, ... 3200) or segments (1725 x 6) that end at the total, within TOL. 0 if they don't."""
+    lo, hi = total
+    rest = distances[start:]
+    cumulative = len(rest) > 1 and abs(rest[1] - 2 * rest[0]) <= TOL * rest[1]
+    n, s, prev = 0, 0.0, None
+    for d in rest:
+        if cumulative and prev is not None and d <= prev:
+            break
+        if (d if cumulative else s + d) > hi * (1 + TOL):
+            break
+        n, s, prev = n + 1, s + d, d
+    covered = prev if cumulative else s
+    return n if n and covered >= lo * (1 - TOL) else 0
 
 
 def _named_band(label):
@@ -229,23 +275,33 @@ def _fmt(v):
 def assign_reps(distances, lines):
     """Map each rep column to a label line by walking the reps in order.
 
-    A rep belongs to the current line if that line mentions its distance;
-    otherwise to the next line that does; otherwise it stays with the current
-    line and is marked as a guess.
+    From the current line onward, the first line that either owns a continuous
+    run starting here (all its splits) or mentions the rep's distance (within
+    TOL) takes it. A continuous line is used up once its run is assigned.
+    A rep no line takes stays with the current line, marked "guess" (the
+    build types those from pace, not from the line).
     """
     if not lines:
         return [(None, "no label") for _ in distances]
     if len(lines) == 1:
         return [(0, "only label") for _ in distances]
-    out, cur = [], 0
-    for d in distances:
-        if d in lines[cur]["distances"]:
-            out.append((cur, "distance match"))
-            continue
-        nxt = next((j for j in range(cur + 1, len(lines)) if d in lines[j]["distances"]), None)
-        if nxt is not None:
-            cur = nxt
-            out.append((cur, "distance match"))
+    out, cur, i, done = [], 0, 0, set()
+    while i < len(distances):
+        d = distances[i]
+        for j in range(cur, len(lines)):
+            if j in done:
+                continue
+            span = continuous_span(distances, i, lines[j]["continuous"]) if lines[j].get("continuous") else 0
+            if span:
+                out += [(j, "continuous run")] * span
+                done.add(j)
+                cur, i = j, i + span
+                break
+            if mentions(lines[j], d):
+                out.append((j, "distance match"))
+                cur, i = j, i + 1
+                break
         else:
             out.append((cur, "guess"))
+            i += 1
     return out
