@@ -48,6 +48,31 @@ def load_overrides():
         return {(r["season"], r["tab"], r["block"], r["line"]): r for r in csv.DictReader(fh)}
 
 
+def load_tab_fixes():
+    """rules/tab_fixes.csv -> {(season, tab): row}. action = skip | copied_splits."""
+    with open(RULES / "tab_fixes.csv") as fh:
+        return {(r["season"], r["tab"]): r for r in csv.DictReader(fh)}
+
+
+def _drop_copied_splits(blocks, src_blocks):
+    """copied_splits: an athlete whose splits match their splits on the source tab rep for rep was
+    carried over when the tab was copied - treat those splits as not recorded. Returns how many."""
+    src = {races.norm(a["name"]): [r[1] for r in a["reps"]] for b in src_blocks for a in b["athletes"]}
+    n = 0
+    for b in blocks:
+        for a in b["athletes"]:
+            secs = [r[1] for r in a["reps"]]
+            if any(s is not None for s in secs) and src.get(races.norm(a["name"])) == secs:
+                a["reps"] = [("blank", None, "") for _ in a["reps"]]
+                a["notes"] = " | ".join(x for x in (a["notes"], "splits copied from another tab - not recorded (rules/tab_fixes.csv)") if x)
+                n += 1
+    return n
+
+
+def _rule_unused(review, season, tab, detail):
+    review.append({"issue": "rule_unused", "season": season, "tab": tab, "block": "", "detail": detail})
+
+
 def resolve(name, aliases, by_name, id_names):
     k = races.norm(name)
     if k in aliases:
@@ -69,6 +94,7 @@ def build(seasons=None, out_dir=None):
     fitness = races.Fitness(race_rows)
     cutoffs = races.load_inference(RULES)
     overrides = load_overrides()
+    tab_fixes = load_tab_fixes()
 
     T = defaultdict(list)  # table name -> rows
     review = T["review"]
@@ -82,13 +108,26 @@ def build(seasons=None, out_dir=None):
         tab_names = [ws.title for ws in wb.worksheets]
         tab_dates = dates.assign_dates(tab_names, season)
         for name in tab_names:
+            fx = tab_fixes.get((season, name))
             if name not in tab_dates:
                 T["skipped_tabs"].append({"season": season, "tab": name, "reason": "not a date tab"})
+            elif fx and fx["action"] == "skip":
+                T["skipped_tabs"].append({"season": season, "tab": name, "reason": f"rules/tab_fixes.csv: {fx['note']}"})
+        for (s, tab), fx in tab_fixes.items():
+            if s == season and tab not in tab_names:
+                _rule_unused(review, season, tab, f"rules/tab_fixes.csv names tab '{tab}', which isn't in {book.name}")
         for ws in wb.worksheets:
-            if ws.title not in tab_dates:
+            fx = tab_fixes.get((season, ws.title))
+            if ws.title not in tab_dates or (fx and fx["action"] == "skip"):
                 continue
+            copied_from = None
+            if fx and fx["action"] == "copied_splits":
+                if fx["from_tab"] in tab_names:
+                    copied_from = wb[fx["from_tab"]]
+                else:
+                    _rule_unused(review, season, ws.title, f"rules/tab_fixes.csv: from_tab '{fx['from_tab']}' isn't in {book.name}")
             _do_sheet(ws, season, book.name, tab_dates[ws.title], types, aliases, ath_notes,
-                      by_name, id_names, fitness, cutoffs, overrides, T)
+                      by_name, id_names, fitness, cutoffs, overrides, T, copied_from)
 
     _days(T)
     _dt_sessions(T)
@@ -101,10 +140,13 @@ def build(seasons=None, out_dir=None):
     return T
 
 
-def _do_sheet(ws, season, book, date, types, aliases, ath_notes, by_name, id_names, fitness, cutoffs, overrides, T):
+def _do_sheet(ws, season, book, date, types, aliases, ath_notes, by_name, id_names, fitness, cutoffs, overrides, T,
+              copied_from=None):
     review = T["review"]
     sheet_key = f"{season}|{ws.title}"
     meta, blocks = parse_sheet(ws)
+    if copied_from is not None and not _drop_copied_splits(blocks, parse_sheet(copied_from)[1]):
+        _rule_unused(review, season, ws.title, f"rules/tab_fixes.csv copied_splits from '{copied_from.title}' matched no athlete")
     _, _, suffix = dates.parse_tab(ws.title)
     session_no = meta["session_no"]
     if session_no is None and suffix:
