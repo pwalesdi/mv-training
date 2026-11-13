@@ -10,10 +10,11 @@ A sheet is a stack of blocks. Each block looks like:
     Rest: | 0:45 | 0:45 | ...
     Total Vol (m) | 8625 | ...   <- summary rows, ignored except total volume
 
-Row 1 holds the written date (col A), start time (col H) and venue (col I);
-row 2 holds weather (cols H-I). A "SESSION 1/2" marker sits in the top rows on
-double days.
+Row 1 holds the written date (col A); the start time, venue and weather sit in
+B1:L2 (usually start time H1, venue I1, weather H2:I2 - older seasons move them
+around, see _title_meta). A "SESSION 1/2" marker sits in the top rows on double days.
 """
+import datetime as dt
 import re
 
 from .cells import blank, duration_text, text, to_distance, to_miles, to_seconds
@@ -37,6 +38,40 @@ def _grid(ws):
 
 def _a(row):
     return row[0] if row else None
+
+
+WEATHER_RE = re.compile(r"\d\s*(?:°|deg)|\bdeg(?:ree)?s?\b|°|sunny|cloud|clear|overcast|rain|drizzle|wind|breez|fog|"
+                        r"smok|haz[ey]|humid|\bhot\b|\bcold\b|\bcool\b|\bwarm\b|beautiful|nice", re.I)
+VENUE_RE = re.compile(r"track|church|loop|mvhs|dvms|\bms\b|park|\bsvp\b|sycamore|mammoth|trail|school|field|"
+                      r"course|road|\bhills?\b|@", re.I)
+CLOCK_RE = re.compile(r"\b\d{1,2}:\d{2}\s*(?:[ap]\.?\s?m\b\.?)?|\b\d{1,2}\s*[ap]\.?\s?m\b\.?", re.I)
+
+
+def _title_meta(g):
+    """(start_time, venue, weather) from B1:L2, by what each cell holds - 2024-25 on use H1 / I1 / H2:I2,
+    older seasons move them around ('MVHS @ 3:45pm' in F1, weather in K1 or I1, a venue in row 2).
+    A time cell is the start time; text with a temperature or weather word is weather; other row-1 text
+    is the venue; row-2 text is weather unless it names a place. With no time cell, a clock time
+    written inside the text ('MVHS @ 3:45pm') is the start time."""
+    times, venues, weather = [], [], []
+    for r in (0, 1):
+        if r >= len(g):
+            break
+        for c in range(1, 12):
+            v = g[r][c]
+            if blank(v) or isinstance(v, dt.datetime):
+                continue
+            t = text(v)
+            if isinstance(v, (dt.time, dt.timedelta)):
+                times.append(t)
+            elif WEATHER_RE.search(t) or (r == 1 and not VENUE_RE.search(t)):
+                weather.append(t)
+            else:
+                venues.append(t)
+    if not times:
+        m = next((CLOCK_RE.search(t) for t in venues + weather if CLOCK_RE.search(t)), None)
+        times = [m.group(0).strip()] if m else []
+    return (times[0] if times else ""), " / ".join(dict.fromkeys(venues)), " ".join(weather)
 
 
 def _numeric_distance(v):
@@ -93,11 +128,12 @@ def parse_sheet(ws, fixes=None):
     for (r, c), v in (fixes or {}).items():
         if r < len(g) and c < MAX_COL:
             g[r][c] = v
+    start_time, venue, weather = _title_meta(g)
     meta = {
         "title": g[0][0] if g else None,
-        "start_time": text(g[0][7]) if g else "",
-        "venue": text(g[0][8]) if g else "",
-        "weather": " ".join(t for t in (text(g[1][7]), text(g[1][8])) if t) if len(g) > 1 else "",
+        "start_time": start_time,
+        "venue": venue,
+        "weather": weather,
         "session_no": None,
         "session_note": "",
     }
