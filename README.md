@@ -65,8 +65,9 @@ workouts):
   every week are in tables below.
 - **Races**: track - one panel per event (800 / 1600 / 3200) on a shared time axis, faster
   higher, dots filled where the race was a PR when it was run, the lifetime PR labelled, hover for
-  meet / mark / place. Cross country - every course the athlete ran more than once (same meet
-  *and* distance, so a meet that changed its distance isn't compared across years), with a small
+  meet / mark / place. Cross country - every course the athlete ran more than once (two results
+  with a time - a DNS doesn't count; same meet *and* distance, so a meet that changed its distance
+  isn't compared across years), with a small
   chart and each year's time, and every XC race as a plain list. Times only: nothing converts
   between events or courses (no mile equivalents).
 

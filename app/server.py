@@ -553,7 +553,8 @@ class Data:
     def athlete_races(self, key):
         """Track: every result per event, oldest first, with PRs (faster than everything before it in that
         event; 'best' = the lifetime PR). XC: courses (same meet AND distance, see mvtrain/races.py) run
-        more than once, and every XC race. Times only - nothing is converted between events or courses."""
+        more than once (two or more results with a time; a DNS / DNF doesn't count), and every XC race. Times
+        only - nothing is converted between events or courses."""
         if key not in self.athletes:
             return None
         rows = self.races_by_athlete.get(key, [])
@@ -585,7 +586,7 @@ class Data:
                 courses[r["xc_course"]].append(r)
         repeated = []
         for k, lst in courses.items():
-            if len(lst) < 2:
+            if sum(1 for r in lst if r["seconds"]) < 2:  # run more than once = two results with a time
                 continue
             lst.sort(key=lambda r: r["date"])
             prev, out = None, []
