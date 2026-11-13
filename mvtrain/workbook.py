@@ -87,8 +87,12 @@ def _rep_cell(v):
     return "note", None, raw
 
 
-def parse_sheet(ws):
+def parse_sheet(ws, fixes=None):
+    """fixes: {(row_idx, col_idx): value} from rules/cell_fixes.csv, applied to the in-memory grid only."""
     g = _grid(ws)
+    for (r, c), v in (fixes or {}).items():
+        if r < len(g) and c < MAX_COL:
+            g[r][c] = v
     meta = {
         "title": g[0][0] if g else None,
         "start_time": text(g[0][7]) if g else "",

@@ -76,6 +76,15 @@ def text(v):
     return str(v).strip()
 
 
+def display(v):
+    """A cell as the sheet shows it - what rules/cell_fixes.csv raw_value is matched against: 1600, 6:25, 0;68."""
+    if isinstance(v, (dt.time, dt.timedelta)):
+        return duration_text(v)
+    if isinstance(v, float) and v.is_integer():
+        return str(int(v))
+    return text(v)
+
+
 def duration_text(v):
     """Rest/duration cell -> text the way the sheet reads: '0:45', '1:30', '3:00', '0:56.4'.
 

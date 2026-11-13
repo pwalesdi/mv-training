@@ -21,7 +21,7 @@ from pathlib import Path
 import openpyxl
 
 from . import classify, dates, mileage, races
-from .cells import CHURCH_LAP_M
+from .cells import CHURCH_LAP_M, display
 from .workbook import parse_sheet
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -73,6 +73,29 @@ def _rule_unused(review, season, tab, detail):
     review.append({"issue": "rule_unused", "season": season, "tab": tab, "block": "", "detail": detail})
 
 
+def load_cell_fixes():
+    """rules/cell_fixes.csv -> {(season, tab): [rows]}: one-off corrections to single cells."""
+    out = defaultdict(list)
+    with open(RULES / "cell_fixes.csv") as fh:
+        for r in csv.DictReader(fh):
+            out[(r["season"], r["tab"])].append(r)
+    return out
+
+
+def _cell_fixes(ws, rows, season, review):
+    """Fixes whose raw_value still matches the sheet -> {(row_idx, col_idx): corrected}. Others go to review."""
+    out = {}
+    for r in rows:
+        cell = ws[r["cell"]]
+        have = display(cell.value)
+        if have != r["raw_value"].strip():
+            _rule_unused(review, season, ws.title, f"rules/cell_fixes.csv expects '{r['raw_value']}' in {r['cell']} "
+                                                   f"but the sheet has '{have}' - not applied")
+            continue
+        out[(cell.row - 1, cell.column - 1)] = r["corrected_value"].strip()
+    return out
+
+
 def resolve(name, aliases, by_name, id_names):
     k = races.norm(name)
     if k in aliases:
@@ -95,6 +118,7 @@ def build(seasons=None, out_dir=None):
     cutoffs = races.load_inference(RULES)
     overrides = load_overrides()
     tab_fixes = load_tab_fixes()
+    cell_fixes = load_cell_fixes()
 
     T = defaultdict(list)  # table name -> rows
     review = T["review"]
@@ -116,6 +140,9 @@ def build(seasons=None, out_dir=None):
         for (s, tab), fx in tab_fixes.items():
             if s == season and tab not in tab_names:
                 _rule_unused(review, season, tab, f"rules/tab_fixes.csv names tab '{tab}', which isn't in {book.name}")
+        for (s, tab) in cell_fixes:
+            if s == season and tab not in tab_names:
+                _rule_unused(review, season, tab, f"rules/cell_fixes.csv names tab '{tab}', which isn't in {book.name}")
         for ws in wb.worksheets:
             fx = tab_fixes.get((season, ws.title))
             if ws.title not in tab_dates or (fx and fx["action"] == "skip"):
@@ -126,8 +153,9 @@ def build(seasons=None, out_dir=None):
                     copied_from = wb[fx["from_tab"]]
                 else:
                     _rule_unused(review, season, ws.title, f"rules/tab_fixes.csv: from_tab '{fx['from_tab']}' isn't in {book.name}")
+            fixes = _cell_fixes(ws, cell_fixes.get((season, ws.title), []), season, review)
             _do_sheet(ws, season, book.name, tab_dates[ws.title], types, aliases, ath_notes,
-                      by_name, id_names, fitness, cutoffs, overrides, T, copied_from)
+                      by_name, id_names, fitness, cutoffs, overrides, T, copied_from, fixes)
 
     _days(T)
     _dt_sessions(T)
@@ -141,10 +169,11 @@ def build(seasons=None, out_dir=None):
 
 
 def _do_sheet(ws, season, book, date, types, aliases, ath_notes, by_name, id_names, fitness, cutoffs, overrides, T,
-              copied_from=None):
+              copied_from=None, fixes=None):
     review = T["review"]
     sheet_key = f"{season}|{ws.title}"
-    meta, blocks = parse_sheet(ws)
+    meta, blocks = parse_sheet(ws, fixes)
+    # copied splits are compared as written (no cell fixes) - the copy happened on the raw cells
     if copied_from is not None and not _drop_copied_splits(blocks, parse_sheet(copied_from)[1]):
         _rule_unused(review, season, ws.title, f"rules/tab_fixes.csv copied_splits from '{copied_from.title}' matched no athlete")
     _, _, suffix = dates.parse_tab(ws.title)

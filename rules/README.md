@@ -30,6 +30,7 @@ A double-threshold *day* (Session 1 + Session 2) only exists from 2025-26 on; th
 | `line_overrides.csv` | Fix one day by hand. `season,tab,block,line,workout_type,band,note` - e.g. `2526,4-21,1,4,threshold,DT,confirmed by Patrick: AT = aerobic threshold`. Leave `line` blank to set a whole unlabeled block. Wins over everything else. |
 | `inference.csv` | Cutoffs (target pace as % of mile fitness) used to guess the category of unlabeled blocks. |
 | `tab_fixes.csv` | Whole-tab decisions. `season,tab,action,from_tab,note`. `skip` leaves a tab out (a blank plan copy, or the same session saved in two workbooks). `copied_splits` + `from_tab`: athletes whose splits match their splits on `from_tab` rep for rep were carried over when the tab was copied, so those splits count as not recorded. A row that matches nothing shows up in review as `rule_unused`. |
+| `cell_fixes.csv` | One-off corrections to a single cell. `season,tab,cell,raw_value,corrected_value,note` - e.g. `2425,9-18,O53,0;68,1:08,...`. Applied only while the cell still reads `raw_value` (otherwise it's reported as `rule_unused` and skipped). The workbook itself is never changed. Use this instead of a general parser rule when a typo could mean something else elsewhere. |
 
 `status=proposed` / `default` marks a call Claude made that Patrick hasn't confirmed.
 After each run, `data/build/review.csv` lists what still needs a decision, including
