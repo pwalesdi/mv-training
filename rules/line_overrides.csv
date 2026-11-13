@@ -3,3 +3,6 @@ season,tab,block,line,workout_type,band,note
 2526,1-13 (2),2,1,threshold,DT,confirmed by Patrick: AT = aerobic threshold
 2526,4-21,1,4,threshold,DT,confirmed by Patrick: AT = aerobic threshold
 2425,2-18,2,1,threshold,DT,confirmed by Patrick: HM -> 5k lap progression is DT
+2627,9-1,4,1,threshold,LT,labels swapped on sheet - confirmed by Patrick
+2627,9-1,4,2,threshold,DT,labels swapped on sheet - confirmed by Patrick
+2627,9-22,2,2,aerobic_power,,confirmed by Patrick
