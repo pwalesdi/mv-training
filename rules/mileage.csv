@@ -1,0 +1,2 @@
+setting,value,note
+weekly_source_when_both,activities,"proposed by Claude, not confirmed: when an athlete-week has both Strava activities (data/strava) and a weekly export (data/mileage), the app shows the run miles worked out from the activities; the export's number is kept beside it. 'export' shows the export's number instead"

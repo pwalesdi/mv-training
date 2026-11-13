@@ -6,7 +6,7 @@
 Outputs (in data/build/, never committed):
     training.sqlite  - every table below
     sheets.csv, blocks.csv, prescriptions.csv, athlete_blocks.csv, reps.csv,
-    days.csv, races.csv, review.csv
+    days.csv, races.csv, weekly_mileage.csv, activities.csv, athlete_weeks.csv, review.csv
 The workbooks themselves are only read, never modified.
 """
 import argparse
@@ -20,7 +20,7 @@ from pathlib import Path
 
 import openpyxl
 
-from . import classify, dates, mileage, races
+from . import classify, dates, mileage, races, strava
 from .cells import CHURCH_LAP_M, display
 from .workbook import parse_sheet
 
@@ -277,7 +277,7 @@ def resolve(name, aliases, by_name, id_names, plain=False):
     return "", name, "unmatched"
 
 
-def build(seasons=None, out_dir=None, mileage_dir=None):
+def build(seasons=None, out_dir=None, mileage_dir=None, strava_dir=None):
     out_dir = Path(out_dir or DATA / "build")
     out_dir.mkdir(parents=True, exist_ok=True)
     types = classify.load_types()
@@ -333,6 +333,14 @@ def build(seasons=None, out_dir=None, mileage_dir=None):
                                     by_name, id_names, race_rows, excluded=lambda aid, s: athletes.excluded(s, aid))
     T["weekly_mileage"].extend(m_rows)
     T["review"].extend(m_review)
+    acts, a_weeks, windows, a_review = strava.load(Path(strava_dir or DATA / "strava"), RULES,
+                                                   PRIVATE_RULES / "strava_aliases.csv", PRIVATE_RULES / "strava_fixes.csv",
+                                                   by_name, id_names, race_rows, excluded=lambda aid, s: athletes.excluded(s, aid))
+    weekly, w_review = strava.combine(a_weeks, m_rows, acts, windows,
+                                      strava.load_settings(RULES).get("weekly_source_when_both", "activities"))
+    T["activities"].extend(acts)
+    T["athlete_weeks"].extend(weekly)
+    T["review"].extend(a_review + w_review)
     for r in race_rows:
         if not athletes.excluded(mileage.season_of(r["date"]), r["athlete_id"]):
             T["races"].append({**r, "date": r["date"].isoformat()})
@@ -613,10 +621,11 @@ def main():
     ap.add_argument("--seasons", nargs="*", help="e.g. 2526 2425 (default: all workbooks)")
     ap.add_argument("--out", help="output folder (default data/build)")
     ap.add_argument("--mileage", help="folder of Strava weekly-mileage CSVs (default data/mileage)")
+    ap.add_argument("--strava", help="folder of Strava activity CSVs (default data/strava)")
     args = ap.parse_args()
-    T = build(set(args.seasons) if args.seasons else None, args.out, args.mileage)
+    T = build(set(args.seasons) if args.seasons else None, args.out, args.mileage, args.strava)
     print(f"sheets {len(T['sheets'])}  blocks {len(T['blocks'])}  athlete-blocks {len(T['athlete_blocks'])}  "
-          f"reps {len(T['reps'])}  days {len(T['days'])}  review items {len(T['review'])}")
+          f"reps {len(T['reps'])}  days {len(T['days'])}  activities {len(T['activities'])}  review items {len(T['review'])}")
     for issue, n in Counter(r["issue"] for r in T["review"]).most_common():
         print(f"  {issue}: {n}")
 

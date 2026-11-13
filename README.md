@@ -14,7 +14,8 @@ data/        NOT in git - workbooks, race CSVs, and the built database
   workbooks/   MV_Workouts.YYZZ.xlsx (one per season, e.g. 2526 = 2025-26)
   races/       Athletic.net exports (MV_XC_*.csv, MV_TF_*.csv)
   mileage/     weekly mileage exports from Strava (wide weeks x athletes, or one row per athlete-week)
-  rules/       aliases.csv, athletes.csv, strava_aliases.csv
+  strava/      Strava activity exports (one row per activity, one or more files per athlete)
+  rules/       aliases.csv, athletes.csv, strava_aliases.csv, strava_fixes.csv
   build/       output: training.sqlite + CSVs (regenerated every run)
 ```
 
@@ -108,6 +109,34 @@ athlete without one (most of 2019-20) can't show mileage.
 To try a folder of exports without touching `data/mileage/`:
 `python -m mvtrain.build --mileage /path/to/folder --out /path/to/test-build`.
 
+## Strava activities (`data/strava/`)
+
+Every `.csv` in `data/strava/` with one row per activity and the columns `athlete` (Strava
+display name), `date`, `sport`, `title`, `distance`, `unit`, `moving_time`, `moving_time_sec`,
+`pace_strava`, `pace_calc_min_per_mi`, `elev_gain`, `activity_id`, `activity_url`. Any other file
+there is skipped and listed in review.csv (weekly exports belong in `data/mileage/`). A file name
+ending `_<from>_to_<to>.csv` (e.g. `jane_d_activities_2024-08_to_2026-11-13.csv`) says what period
+the export covers, so a week it only partly covers is marked partial.
+
+- Names are matched like the weekly exports (`data/rules/strava_aliases.csv`, then the exact
+  Athletic.net name); unmatched names go to review.csv with possible matches.
+- An activity in two files (same `activity_id`) is kept once, from the newest file.
+- Distance becomes miles from the `unit` column (mi, km, m, yd).
+- `rules/strava_sports.csv` says what each sport counts as: `run` (weekly run miles), `cross`
+  (cross-training minutes) or `other` (kept, counted nowhere). A new sport counts as other until
+  it's added there, and review.csv says so.
+- `data/rules/strava_fixes.csv` (`activity_id,action,value,note`) corrects one activity:
+  `exclude`, `sport` (count it as another sport) or `miles` (the right distance). Runs with an
+  odd pace (faster than 4:00/mi or slower than 20:00/mi over a mile or more) or over 20 miles are
+  counted as recorded and listed in review.csv (`strava_check`) so they can be fixed there.
+- Each athlete-week with any activity gets run miles, the number of runs, runs with no distance
+  and their minutes, cross-training minutes by sport, and the week's longest run (also flagged on
+  the activity, `longest_of_week`). A week with no activity has no row - it's no data, not 0.
+- Where a week is also in the weekly export, both numbers are kept; a difference of more than a
+  mile over the same days goes to review.csv (`mileage_sources_differ`).
+
+`python -m mvtrain.build --strava /path/to/folder --out /path/to/test-build` tries another folder.
+
 ## What comes out (`data/build/`)
 
 | Table | One row per |
@@ -119,7 +148,9 @@ To try a folder of exports without touching `data/mileage/`:
 | `athlete_blocks` | athlete in a block: Athletic.net ID, cooldown, total volume, notes |
 | `reps` | athlete x rep: distance, target, actual, status, type/band, shared-split flag |
 | `races` | Athletic.net result. XC results also carry `xc_meet` (the meet across years) and `xc_course` (meet + distance: the same course); `duplicate_of` marks a result Athletic.net posted twice |
-| `weekly_mileage` | athlete x week (Strava): miles, partial-week flag |
+| `weekly_mileage` | athlete x week from the weekly exports (`data/mileage/`): miles, partial-week flag |
+| `activities` | Strava activity: date, sport, what it counts as (run / cross / other / excluded), miles, moving time, pace, longest run of its week, any fix or check |
+| `athlete_weeks` | athlete x week the Mileage tab shows: run miles and their source (activities / export, both kept), runs, runs with no distance, cross-training minutes, longest run, partial-week flag |
 | `review` | anything the parser couldn't settle - read this after each run |
 
 ## Rules that came from Patrick
