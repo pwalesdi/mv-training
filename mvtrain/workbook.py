@@ -137,6 +137,17 @@ def parse_plain_name(v):
     return " ".join(m.group(1).split())
 
 
+REST_TXT = re.compile(r"\d\s*j\b|jog|\brec\b|\bmin|walk|\d\s*s\b|^\s*\d{1,2}:\d{2}", re.I)
+
+
+def _unlabeled_rest(row, rep_cols):
+    """At least half the rep columns filled, and every filled cell a duration or rest text (200j, jog, rec)."""
+    vals = [row[c] for c in rep_cols if not blank(row[c])]
+    if not rep_cols or len(vals) < max(1, len(rep_cols) // 2):
+        return False
+    return all(to_seconds(v) is not None or (isinstance(v, str) and REST_TXT.search(v)) for v in vals)
+
+
 def _rep_cell(v):
     """-> (status, seconds, raw)."""
     if blank(v):
@@ -277,6 +288,13 @@ def parse_sheet(ws, fixes=None):
                 pass  # lactate readings row inside a block: skip it and keep reading (Rest:, Total Vol follow)
             elif isinstance(a, str) and a.strip() and ":" in a and not sa.startswith(SUMMARY_PREFIXES):
                 break  # label line for the next block
+            elif (blank(a) and athletes and not rest_raw and end == athletes[-1]["row"] - 1
+                  and _unlabeled_rest(row, rep_cols)):
+                # the rest row without its "Rest:" label (common before 2024-25): blank col A, right
+                # after the athletes (only blank rows between), rest-like values under the reps
+                rest_raw = [duration_text(row[c]) for c in rep_cols]
+                rest_secs = [to_seconds(row[c]) for c in rep_cols]
+                end = r
             r += 1
         prev_end = end
         blocks.append({
