@@ -32,5 +32,5 @@ speed endurace,speed_endurance,,no,intervals,confirmed,typo
 lactate tolerance,speed_endurance,,no,intervals,confirmed,3x150 @ 800 RP = speed endurance (Patrick)
 alactic resistance,speed_endurance,,no,intervals,proposed,200s/150 @ 500 RP
 hills,hills,,no,hills,proposed,"short hill reps (30s / 150 m) - own chip"
-aerobic run,easy_aerobic,,no,continuous,open,
-aerobic development run,easy_aerobic,,no,continuous,open,
+aerobic run,easy_aerobic,,no,continuous,confirmed,easy run - its own chip outside the six categories (Patrick)
+aerobic development run,easy_aerobic,,no,continuous,confirmed,easy run - its own chip outside the six categories (Patrick)

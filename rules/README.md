@@ -15,6 +15,8 @@ rebuild, and every season is re-classified.
 | Threshold - LT (= anaerobic threshold) | 10K-15K RP |
 | Threshold - DT (= aerobic threshold) | HM / 20K / 25K / MP. On double days: AM (Session 1) ~2-2.5 mmol, PM (Session 2) ~2.5-3.5 mmol |
 
+Easy runs ("Aerobic Run", "Aerobic Development Run") are **easy aerobic** - their own chip, outside the six categories.
+
 Anchors written as letters: **AT = aerobic threshold (DT)**, **LT = anaerobic threshold**.
 A double-threshold *day* (Session 1 + Session 2) only exists from 2025-26 on; the DT pace band applies to every season.
 
