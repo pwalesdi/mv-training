@@ -12,3 +12,6 @@ season,tab,block,line,reps,workout_type,band,note
 2627,9-24 (2),4,,6-7,speed_endurance,,confirmed by Patrick (2026-11-13): unlabeled PM group - the 300s and 400s are speed endurance (2x400)
 2627,9-24 (2),5,,1-5,threshold,LT,"confirmed by Patrick (2026-11-13): unlabeled PM group - the 1000s and 600s are threshold / LT (4x1000, 600)"
 2627,9-24 (2),5,,6,speed_endurance,,confirmed by Patrick (2026-11-13): unlabeled PM group - the 300s and 400s are speed endurance (300)
+2627,7-9,1,,1 3 5 7,threshold,DT,confirmed by Patrick (2026-11-13): unlabeled group - the laps @ 7:10 are threshold / DT
+2627,7-9,1,,2 4 6,threshold,LT,confirmed by Patrick (2026-11-13): unlabeled group - the 1000s @ 3:45 are threshold / LT
+2627,7-9,4,,1-4,threshold,LT,confirmed by Patrick (2026-11-13): unlabeled group - the progression laps 7:40 -> 7:00 are threshold / LT
