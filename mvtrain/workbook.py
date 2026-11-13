@@ -21,6 +21,10 @@ from .cells import blank, text, to_distance, to_miles, to_seconds
 NAME_RE = re.compile(r"^\s*([A-Za-z][A-Za-z'\-\. ]*?)\s*,\s*([A-Za-z][A-Za-z'\-\. ]*?)\s*(\(.*\))?\s*$")
 SESSION_RE = re.compile(r"^\s*session\s*(\d)\s*:?\s*(.*)$", re.I)
 SUMMARY_PREFIXES = ("total vol", "workout duration", "rest duration", "total duration", "density", "pace (")
+# A col-A row that is just "Lactate:" holds lactate readings (2627 tab 7-9). Kept in the workbook,
+# deliberately not parsed yet (see README): not a label, not a block, not a review item.
+# Only the bare word - "Lactate Resistance: ..." etc. are real workout labels.
+LACTATE_RE = re.compile(r"^\s*lactate\s*:?\s*$", re.I)
 MAX_COL = 30
 
 
@@ -119,7 +123,8 @@ def parse_sheet(ws):
             if blank(a) or not isinstance(a, str):
                 continue
             s = a.strip()
-            if SESSION_RE.match(s) or parse_name(s) or s.lower().startswith(SUMMARY_PREFIXES) or s.lower().startswith("rest"):
+            if (SESSION_RE.match(s) or parse_name(s) or s.lower().startswith(SUMMARY_PREFIXES)
+                    or s.lower().startswith("rest") or LACTATE_RE.match(s)):
                 continue
             # "Last, First   600m:" is an athlete-specific note, not a workout label
             if re.match(r"^\**\s*notes?\b", s, re.I) or ":" not in s or "," in s.split(":")[0]:
@@ -195,6 +200,8 @@ def parse_sheet(ws):
                 end = r
             elif sa.startswith(SUMMARY_PREFIXES):
                 end = r
+            elif LACTATE_RE.match(sa):
+                pass  # lactate readings row inside a block: skip it and keep reading (Rest:, Total Vol follow)
             elif isinstance(a, str) and a.strip() and ":" in a and not sa.startswith(SUMMARY_PREFIXES):
                 break  # label line for the next block
             r += 1

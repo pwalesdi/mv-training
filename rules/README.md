@@ -25,7 +25,7 @@ A double-threshold *day* (Session 1 + Session 2) only exists from 2025-26 on; th
 | `pace_zones.csv` | Race-distance anchor (in km) -> category / band. This is the table above. |
 | `pace_symbols.csv` | Letter anchors (`@ AT`, `@ LT`, `DT pace`, `Threshold Pace`) -> category / band. |
 | `workout_types.csv` | Label text before the colon -> category. `pace_decides=yes` means the line's pace anchor picks the category (so "Aerobic Power @ 5K" becomes lactate resistance); `no` means the label wins. |
-| `line_overrides.csv` | Fix one day by hand. `season,tab,block,line,workout_type,band,note` - e.g. `2526,1-13 (2),1,1,threshold,LT,AT meant anaerobic here`. Leave `line` blank to set a whole unlabeled block. Wins over everything else. |
+| `line_overrides.csv` | Fix one day by hand. `season,tab,block,line,workout_type,band,note` - e.g. `2526,4-21,1,4,threshold,DT,confirmed by Patrick: AT = aerobic threshold`. Leave `line` blank to set a whole unlabeled block. Wins over everything else. |
 | `inference.csv` | Cutoffs (target pace as % of mile fitness) used to guess the category of unlabeled blocks. |
 
 `status=proposed` / `default` marks a call Claude made that Patrick hasn't confirmed.

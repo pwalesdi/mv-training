@@ -52,3 +52,12 @@ and re-run. The build is from scratch every time and never edits the workbooks.
 - Categories and pace bands (speed endurance / lactic capacity / aerobic power /
   lactate resistance / LT / DT) are in `rules/README.md`. Any single day can be
   corrected in `rules/line_overrides.csv`.
+
+## Not parsed yet
+
+- **Lactate readings** stay in the workbooks but are deliberately not parsed yet -
+  they're a separate project for later. They're in the 2025-26 `Lactate` tab (skipped
+  as a non-date tab) and inline in 2026-27 tab `7-9` (a col-A row that is just
+  "Lactate:", which the parser ignores - not a label, block or review item).
+  For when that project starts: the church loop is 1725 m; the 1710 in the
+  `Lactate` tab is a typo.
