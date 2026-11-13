@@ -35,9 +35,166 @@ def load_aliases():
         return {races.norm(r["workbook_name"]): r for r in csv.DictReader(fh)}
 
 
-def load_athlete_notes():
-    with open(PRIVATE_RULES / "athletes.csv") as fh:
-        return {(races.norm(r["workbook_name"]), r["season"]): r for r in csv.DictReader(fh)}
+class AthleteRules:
+    """data/rules/athletes.csv: workbook_name, athlete_id, season, status, note.
+
+    A row with an athlete_id is for that Athletic.net athlete: every workbook spelling that resolves to the ID,
+    their race results and their Strava weeks (workbook_name is then only a label). A row without one is for a
+    workbook name, as written or as shown after aliases.csv (athletes with no Athletic.net match). A blank
+    season means every season. status=exclude leaves the athlete out; any other status (e.g. alum) is a note
+    on their athlete-block rows, a season's own row before an every-season row.
+    """
+
+    def __init__(self, path):
+        self.by_id, self.by_name, self.lines, self.used = defaultdict(list), defaultdict(list), [], set()
+        self.known, self.left_out = set(), defaultdict(set)  # names seen on sheets; left out, by season ('' = all)
+        with open(path) as fh:
+            for line, r in enumerate(csv.DictReader(fh), start=2):
+                r = {k: (v or "").strip() for k, v in r.items() if k}
+                r["line"] = line
+                self.lines.append(r)
+                if r.get("athlete_id"):
+                    self.by_id[r["athlete_id"]].append(r)
+                elif r.get("workbook_name"):
+                    self.by_name[races.norm(r["workbook_name"])].append(r)
+
+    def _rows(self, season, athlete_id, names):
+        rows = list(self.by_id.get(athlete_id, ())) if athlete_id else []
+        for n in dict.fromkeys(races.norm(n) for n in names):
+            rows += self.by_name.get(n, ())
+        return sorted((r for r in rows if r.get("season", "") in (season, "")), key=lambda r: r.get("season", "") == "")
+
+    def status(self, season, athlete_id="", names=()):
+        """'exclude' if any row for this athlete and season excludes them, else the status of their row ('')."""
+        rows = self._rows(season, athlete_id, names)
+        self.used.update(r["line"] for r in rows)
+        if any(r.get("status") == "exclude" for r in rows):
+            return "exclude"
+        return rows[0].get("status", "") if rows else ""
+
+    def excluded(self, season, athlete_id="", names=()):
+        return self.status(season, athlete_id, names) == "exclude"
+
+    def seen(self, season, status, athlete_id, names):
+        """Note an athlete's names as written on a sheet, and whether they're left out (for scrub_left_out)."""
+        self.known |= set(names)
+        if status == "exclude":
+            everywhere = any(r.get("status") == "exclude" and not r.get("season")
+                             for r in self._rows(season, athlete_id, names))
+            self.left_out["" if everywhere else season] |= set(names)
+
+    def add_rule_names(self, id_names, aliases):
+        """Left-out names from the rows themselves: the Athletic.net name and every alias of a left-out ID."""
+        spellings = defaultdict(list)
+        for a in aliases.values():
+            spellings[a["athlete_id"]].append(a["workbook_name"])
+        for r in self.lines:
+            if r.get("status") == "exclude":
+                aid = r.get("athlete_id")
+                names = [r.get("workbook_name", "")] + ([id_names.get(aid, "")] + spellings[aid] if aid else [])
+                self.left_out[r.get("season", "")] |= {n for n in names if n}
+
+    def left_out_in(self, season):
+        return self.left_out[""] | self.left_out[season]
+
+    def unused(self, seasons):
+        """Rows that matched nothing in the seasons built (seasons=None: all), by line number - no names."""
+        return [r for r in self.lines if r["line"] not in self.used
+                and (seasons is None or (r.get("season") and r["season"] in seasons))]
+
+
+def _first_last(name):
+    """'Doe, Jane (800)' -> ('Jane', 'Doe'); 'Jane Doe' -> ('Jane Doe', '') (order unknown)."""
+    n = re.sub(r"\s*\([^)]*\)", "", name or "").strip()
+    if "," in n:
+        last, first = (p.strip() for p in n.split(",", 1))
+        return first, last
+    return n, ""
+
+
+def name_forms(names):
+    """'Doe, Jane (800)' and 'Jane Doe' -> {'doejane', 'janedoe'}: a name either way round, letters only."""
+    out = set()
+    for n in names:
+        first, last = _first_last(n)
+        if last:
+            out |= {races.norm(first + last), races.norm(last + first)}
+        else:  # no comma: the order isn't known, so also with the first or last word moved to the other end
+            out |= {races.norm(o) for o in name_orders(first, plain=True)}
+    return {f for f in out if len(f) > 3}
+
+
+def first_names(names):
+    """First names, letters only: the word after the comma of 'Last, First', else the first word."""
+    out = set()
+    for n in names:
+        first, last = _first_last(n)
+        words = first.split()
+        if words:
+            out.add(races.norm(words[0]))
+    return {f for f in out if len(f) > 2}
+
+
+def mentions(text, forms):
+    """Does the text contain one of these names (2-4 words in a row, either way round)? First names alone don't count."""
+    words = (text or "").split()
+    return any(races.norm(" ".join(words[i:j])) in forms
+               for i in range(len(words)) for j in range(i + 2, min(i + 4, len(words)) + 1))
+
+
+def scrub_left_out(T, athletes):
+    """Text written beside one athlete's row sometimes names others - a pairing ('Doe, Jane | Smith, Alex',
+    'Doe | Jane' over two cells) or a name with its own status or workout ('Jane Doe | Injured ?'). Cells naming
+    an athlete left out in athletes.csv are dropped from the notes kept; after a cell that is just their name, the
+    next cell (theirs) goes too unless it is another athlete's name. A cell that is only a first name goes when no
+    athlete kept has that first name. Group note lines naming them are dropped. Label lines, titles and rep text
+    are never edited: a left-out (full) name there only goes to review, without the name."""
+    known = name_forms(athletes.known)
+    kept_first = first_names([r[c] for t, c in (("athlete_blocks", "athlete_name"), ("athlete_blocks", "workbook_name"),
+                                                ("races", "athlete_name")) for r in T[t]])
+    by_season = {}
+
+    def gone_in(season):  # (full-name forms, first names only left-out athletes have) for a season
+        if season not in by_season:
+            names = athletes.left_out_in(season)
+            by_season[season] = (name_forms(names), first_names(names) - kept_first)
+        return by_season[season]
+
+    for r in T["athlete_blocks"]:
+        gone, solo = gone_in(r["season"])
+        cells, out, theirs, i = (r["notes"].split(" | ") if r["notes"] else []), [], False, 0
+        while i < len(cells):
+            cell, pair = cells[i], " ".join(cells[i:i + 2]) if i + 1 < len(cells) else ""
+            if theirs and races.norm(cell) not in known:
+                theirs, i = False, i + 1
+                continue
+            theirs = False
+            if mentions(cell, gone):
+                theirs, i = races.norm(cell) in gone, i + 1
+            elif pair and races.norm(pair) in gone:  # last and first name in two cells
+                theirs, i = True, i + 2
+            elif len(cell.split()) == 1 and races.norm(cell) in solo:
+                i += 1
+            else:
+                out.append(cell)
+                i += 1
+        r["notes"] = " | ".join(out)
+    for b in T["blocks"]:
+        gone = gone_in(b["season"])[0]
+        b["notes"] = " || ".join(l for l in (b["notes"].split(" || ") if b["notes"] else []) if not mentions(l, gone))
+    flagged = {}
+    for table, cols in (("sheets", ("written_title", "session_note", "venue", "weather")), ("blocks", ("labels",)),
+                        ("reps", ("raw",))):
+        for r in T[table]:
+            gone = gone_in(r["season"])[0]
+            if any(mentions(line, gone) for c in cols for line in str(r.get(c) or "").split(" || ")):
+                key = r.get("block_key") or r["sheet_key"]
+                flagged[(r["season"], key)] = table
+    for (season, key), table in flagged.items():
+        T["review"].append({"issue": "left_out_name_in_text", "season": season, "tab": key.split("|")[-1].split("#")[0],
+                            "block": key.split("#")[1] if "#" in key else "",
+                            "detail": f"{table}: the text names an athlete left out in data/rules/athletes.csv; it is "
+                                      f"shown as written (labels, titles and rep text are never edited)"})
 
 
 AT_CHECK_PCT = 117  # AT lines whose targets ran faster than this % of mile pace get flagged
@@ -111,6 +268,8 @@ def resolve(name, aliases, by_name, id_names, plain=False):
         k = races.norm(n)
         if k in aliases:
             aid = aliases[k]["athlete_id"]
+            if not aid:  # a workbook-only spelling merged into another workbook name: still no Athletic.net match
+                return "", aliases[k]["athletic_net_name"] or name, "unmatched"
             return aid, id_names.get(aid, aliases[k]["athletic_net_name"]), "alias"
         if k in by_name:
             aid = by_name[k]
@@ -123,7 +282,7 @@ def build(seasons=None, out_dir=None, mileage_dir=None):
     out_dir.mkdir(parents=True, exist_ok=True)
     types = classify.load_types()
     aliases = load_aliases()
-    ath_notes = load_athlete_notes()
+    athletes = AthleteRules(PRIVATE_RULES / "athletes.csv")
     race_rows, id_names, by_name = races.load(DATA / "races", RULES)
     fitness = races.Fitness(race_rows)
     cutoffs = races.load_inference(RULES)
@@ -165,22 +324,30 @@ def build(seasons=None, out_dir=None, mileage_dir=None):
                 else:
                     _rule_unused(review, season, ws.title, f"rules/tab_fixes.csv: from_tab '{fx['from_tab']}' isn't in {book.name}")
             fixes = _cell_fixes(ws, cell_fixes.get((season, ws.title), []), season, review)
-            _do_sheet(ws, season, book.name, tab_dates[ws.title], types, aliases, ath_notes,
+            _do_sheet(ws, season, book.name, tab_dates[ws.title], types, aliases, athletes,
                       by_name, id_names, fitness, cutoffs, overrides, T, copied_from, fixes)
 
     _days(T)
     _dt_sessions(T)
     m_rows, m_review = mileage.load(Path(mileage_dir or DATA / "mileage"), PRIVATE_RULES / "strava_aliases.csv",
-                                    by_name, id_names, race_rows)
+                                    by_name, id_names, race_rows, excluded=lambda aid, s: athletes.excluded(s, aid))
     T["weekly_mileage"].extend(m_rows)
     T["review"].extend(m_review)
     for r in race_rows:
-        T["races"].append({**r, "date": r["date"].isoformat()})
+        if not athletes.excluded(mileage.season_of(r["date"]), r["athlete_id"]):
+            T["races"].append({**r, "date": r["date"].isoformat()})
+    athletes.add_rule_names(id_names, aliases)
+    scrub_left_out(T, athletes)
+    for r in athletes.unused(seasons):
+        review.append({"issue": "rule_unused", "season": r.get("season", ""), "tab": "", "block": "",
+                       "detail": f"data/rules/athletes.csv line {r['line']} "
+                                 f"({'athlete_id ' + r['athlete_id'] if r.get('athlete_id') else 'workbook name'}) "
+                                 f"matched no workbook row, race or Strava week"})
     _write(T, out_dir)
     return T
 
 
-def _do_sheet(ws, season, book, date, types, aliases, ath_notes, by_name, id_names, fitness, cutoffs, overrides, T,
+def _do_sheet(ws, season, book, date, types, aliases, athletes, by_name, id_names, fitness, cutoffs, overrides, T,
               copied_from=None, fixes=None):
     review = T["review"]
     sheet_key = f"{season}|{ws.title}"
@@ -223,19 +390,21 @@ def _do_sheet(ws, season, book, date, types, aliases, ath_notes, by_name, id_nam
                             type_rule="override", band_rule=f"override: {o['note']}")
         block_override = overrides.get((season, ws.title, str(b["block_no"]), ""))
 
-        # athletes
+        # athletes. Excluded athletes (data/rules/athletes.csv) still count for what describes the group - its
+        # fitness for inference, shared splits, the AT check - so leaving someone out never changes anyone
+        # else's rows; only their own rows (and any review line naming them) are dropped.
         resolved = []
         for a in b["athletes"]:
             plain = a.get("plain_name", False)
             aid, canon, how = resolve(a["name"], aliases, by_name, id_names, plain)
-            note = next((ath_notes[(races.norm(n), season)] for n in name_orders(a["name"], plain)
-                         if (races.norm(n), season) in ath_notes), None)
-            if note and note["status"] == "exclude":
-                continue  # out of scope (data/rules/athletes.csv)
-            resolved.append((a, aid, canon, how, note["status"] if note else ""))
-            if how == "unmatched":
+            names = name_orders(a["name"], plain) + [canon]
+            status = athletes.status(season, aid, names)
+            athletes.seen(season, status, aid, names + [a["raw"]])
+            resolved.append((a, aid, canon, how, status))
+            if how == "unmatched" and status != "exclude":
+                shown = f" (shown as {canon})" if races.norm(canon) != races.norm(a["name"]) else ""
                 review.append({"issue": "unmatched_athlete", "season": season, "tab": ws.title, "block": b["block_no"],
-                               "detail": f"'{a['raw']}' has no Athletic.net match (add to rules/aliases.csv if it should)"})
+                               "detail": f"'{a['raw']}'{shown} has no Athletic.net match (add to rules/aliases.csv if it should)"})
 
         # inference for unlabeled blocks: target pace as % of mile fitness (own, else group median)
         athlete_mile = {aid: fitness.mile_equiv(aid, date) for (_, aid, *_ ) in resolved if aid}
@@ -304,8 +473,10 @@ def _do_sheet(ws, season, book, date, types, aliases, ath_notes, by_name, id_nam
 
         line_pcts = defaultdict(list)
         for a, aid, canon, how, status in resolved:
+            keep = status != "exclude"  # an excluded athlete's rows are worked out like everyone's, then not written
+            ab_out, reps_out = (T["athlete_blocks"], T["reps"]) if keep else ([], [])
             st = Counter(r[0] for r in a["reps"])
-            T["athlete_blocks"].append({
+            ab_out.append({
                 "block_key": bkey, "sheet_key": sheet_key, "season": season, "date": date.isoformat(),
                 "session_no": session_no or "", "athlete_id": aid, "athlete_name": canon,
                 "workbook_name": a["raw"], "match": how, "athlete_status": status,
@@ -337,10 +508,10 @@ def _do_sheet(ws, season, book, date, types, aliases, ath_notes, by_name, id_nam
                 rest_raw = b["rest_raw"][ri] if ri < len(b["rest_raw"]) else ""
                 rest_s = b["rest_secs"][ri] if ri < len(b["rest_secs"]) else None
                 suspect = bool(secs and d and secs >= 3600 and d < 10000)
-                if suspect:
+                if suspect and keep:
                     review.append({"issue": "suspect_split", "season": season, "tab": ws.title, "block": b["block_no"],
                                    "detail": f"{canon} rep {ri+1} ({d:g} m) = {raw}; over an hour, probably a fill error"})
-                T["reps"].append({
+                reps_out.append({
                     "block_key": bkey, "season": season, "date": date.isoformat(), "session_no": session_no or "",
                     "athlete_id": aid, "athlete_name": canon, "rep_no": ri + 1, "distance_m": d,
                     "target_s": round(tgt, 2) if tgt else None, "actual_s": round(secs, 2) if secs else None,

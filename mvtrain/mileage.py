@@ -106,10 +106,11 @@ def _near(season):
     return {f"{(y + k) % 100:02d}{(y + k + 1) % 100:02d}" for k in (-1, 0, 1)}
 
 
-def suggest(name, weeks, id_names, raced):
+def suggest(name, weeks, id_names, raced, excluded=None):
     """Possible Athletic.net athletes for an unmatched Strava name ('Jane D' -> Jane Doe):
     same first name, last name starting with the Strava name's last word, raced within a season
-    of these weeks (or no race seasons known). Only a hint for review.csv."""
+    of these weeks (or no race seasons known). Only a hint for review.csv. An athlete left out in
+    data/rules/athletes.csv is given by ID only, never by name."""
     words = re.findall(r"[a-z]+", name.lower())
     if not words:
         return []
@@ -122,12 +123,15 @@ def suggest(name, weeks, id_names, raced):
             continue
         if raced.get(aid) and near and not raced[aid] & near:
             continue
-        out.append(f"{full} ({aid})")
+        hidden = excluded and any(excluded(aid, season_of(w)) for w in weeks)
+        out.append(f"an athlete left out in data/rules/athletes.csv ({aid})" if hidden else f"{full} ({aid})")
     return sorted(out)[:3]
 
 
-def load(mileage_dir, alias_path, by_name, id_names, results=()):
-    """-> (rows, review_items). results (race rows) only feed the suggestions for unmatched names."""
+def load(mileage_dir, alias_path, by_name, id_names, results=(), excluded=None):
+    """-> (rows, review_items). results (race rows) only feed the suggestions for unmatched names.
+    excluded(athlete_id, season) -> True for an athlete left out in data/rules/athletes.csv: their weeks
+    are dropped and they're never named in a suggestion."""
     aliases = load_aliases(alias_path)
     raced = defaultdict(set)
     for r in results:
@@ -156,6 +160,8 @@ def load(mileage_dir, alias_path, by_name, id_names, results=()):
         def put(name, start, end, miles, paren_notes, partial, note):
             nonlocal twice
             aid, how = match(name)
+            if aid and excluded and excluded(aid, season_of(start)):
+                return
             k = (aid or "?" + races.norm(name), start)
             twice += k in seen
             seen.add(k)
@@ -206,7 +212,7 @@ def load(mileage_dir, alias_path, by_name, id_names, results=()):
         if r["match"] == "unmatched":
             unmatched[r["strava_name"]].append(r["week_start"])
     for name in sorted(unmatched):
-        hint = suggest(name, unmatched[name], id_names, raced)
+        hint = suggest(name, unmatched[name], id_names, raced, excluded)
         review.append(_item(f"Strava name '{name}' has no Athletic.net match (add to data/rules/strava_aliases.csv)"
                             + (f"; possible: {', '.join(hint)}" if hint else "")))
         review[-1]["issue"] = "unmatched_strava_name"

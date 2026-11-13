@@ -62,6 +62,11 @@ workouts):
 
 `python -m app --db other/training.sqlite --port 5051` runs it on another build (e.g. a test).
 
+Leaving athletes out: add a row to `data/rules/athletes.csv` with `status=exclude` (by Athletic.net
+ID, or by workbook name for an athlete with no match; a blank season = every season) and re-run.
+Their workouts, races and Strava weeks drop out of the build and the app; the workbooks and race
+files are untouched, and nobody else's rows change. Details in `rules/README.md`.
+
 Updating during a season: save the current workbook into `data/workbooks/`
 (same file name pattern), drop any new Athletic.net exports into `data/races/`,
 and re-run. The build is from scratch every time and never edits the workbooks.
