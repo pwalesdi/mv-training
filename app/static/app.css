@@ -4,7 +4,7 @@
   color-scheme: light;
   --bg: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
   --line: #e1e0d9; --line-2: #c3c2b7; --chip-bg: #f0efec; --hover: #f0efec; --link: #1c5cab;
-  --warn: #d03b3b; --ok: #006300;
+  --warn: #d03b3b; --ok: #006300; --hl: #fbf0c9; --hl-edge: #b98a00;
   --c-threshold: #2a78d6; --c-lactate_resistance: #eb6834; --c-aerobic_power: #1baf7a;
   --c-lactic_capacity: #eda100; --c-speed_endurance: #e87ba4; --c-easy_aerobic: #008300;
   --c-hills: #6250d6; --c-other: #898781;
@@ -14,7 +14,7 @@
     color-scheme: dark;
     --bg: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
     --line: #2c2c2a; --line-2: #383835; --chip-bg: #262624; --hover: #262624; --link: #86b6ef;
-    --warn: #e66767; --ok: #0ca30c;
+    --warn: #e66767; --ok: #0ca30c; --hl: #3a3218; --hl-edge: #e0b33a;
     --c-threshold: #3987e5; --c-lactate_resistance: #d95926; --c-aerobic_power: #199e70;
     --c-lactic_capacity: #c98500; --c-speed_endurance: #d55181; --c-easy_aerobic: #008300;
     --c-hills: #9085e9; --c-other: #898781;
@@ -106,6 +106,8 @@ a.cell:hover { text-decoration: none; border-color: var(--line-2); background: v
 .cell .chips { flex-direction: column; align-items: flex-start; }
 .cell .more, .cell .quiet { font-size: 11px; color: var(--muted); }
 .cell .racename { font-size: 11px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cell .raceres { font-size: 11px; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cell .raceres b { font-weight: 600; }
 
 /* day view */
 .dayhead { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
@@ -126,6 +128,9 @@ table.reps thead th { font-weight: 600; color: var(--ink-2); background: var(--s
 table.reps tr.sub th { font-weight: 400; color: var(--muted); }
 table.reps td.notes, table.reps th.notes { text-align: left; white-space: normal; min-width: 160px; max-width: 300px; color: var(--ink-2); }
 table.reps tbody tr:hover td { background: var(--hover); }
+table.reps tbody tr.hl td, table.list tr.hl td { background: var(--hl); }
+table.reps tbody tr.hl td:first-child, table.list tr.hl td:first-child { box-shadow: inset 3px 0 0 var(--hl-edge); font-weight: 600; }
+.hlkey { background: var(--hl); box-shadow: inset 3px 0 0 var(--hl-edge); padding: 1px 6px 1px 8px; border-radius: 3px; font-weight: 600; }
 .lane { display: block; height: 6px; border-radius: 3px; background: var(--c); margin: 2px 0; }
 .lane.inferred { background: transparent; border: 1px dashed var(--c); height: 6px; }
 .lane.none { background: transparent; border: 1px dotted var(--line-2); }
@@ -147,6 +152,13 @@ table.list tr:hover td { background: var(--hover); }
 .picker a { display: flex; justify-content: space-between; gap: 8px; padding: 4px 6px; border-radius: 6px; color: var(--ink); }
 .picker a.on, .picker a:hover { background: var(--hover); text-decoration: none; }
 .picker .count { color: var(--muted); font-size: 12px; }
+
+/* athlete page */
+.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin: 10px 0 12px; }
+.tabs a { padding: 6px 14px; color: var(--ink-2); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tabs a.on { color: var(--ink); font-weight: 600; border-bottom-color: var(--ink); }
+.tabs a:hover { text-decoration: none; color: var(--ink); }
+details.names { font-size: 12px; } details.names summary { font-size: 12px; }
 
 /* athlete timeline */
 .tl { list-style: none; margin: 0; padding: 0; }

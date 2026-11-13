@@ -36,10 +36,19 @@ Reads `data/build/training.sqlite` (run the build first) and picks up a rebuild 
 restart. It only ever binds to 127.0.0.1 - the data is student data. Views: team calendar
 (default; season picker, month grid, chips, double-threshold / church-loop / race markers),
 day view (every session and group with your label text, athletes x reps, targets, rest,
-group-timed splits), athlete view (history timeline with races and weekly mileage), and
-workouts by type (every session of a category/band, newest first). The Varsity / All
-athletes toggle applies everywhere; varsity = ran a varsity-level cross-country race that
-season (see `app/server.py`). Inferred types are dashed, italic and labelled "inferred".
+group-timed splits), athlete page, and workouts by type (every session of a category/band,
+newest first). The Varsity / All athletes toggle applies to the team views; varsity = ran a
+varsity-level cross-country race that season (see `app/server.py`). Inferred types are
+dashed, italic and labelled "inferred".
+
+Athlete page (open it from the athlete list or by clicking a name anywhere - day view, races,
+workouts):
+- **Calendar** (default): the same month grid, for one season (picker), with only the days
+  the athlete is on a workout sheet or raced. Chips are the types of their own reps; race days
+  show meet, event and mark; 2× T means they did both sessions of a double day. Clicking a day
+  opens the day view with their row highlighted (shown even under the varsity filter), and
+  prev / next there step through their days.
+- **History**: the timeline - sessions with every split, races, filters by season and type.
 
 Updating during a season: save the current workbook into `data/workbooks/`
 (same file name pattern), drop any new Athletic.net exports into `data/races/`,

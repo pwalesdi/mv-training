@@ -5,6 +5,7 @@
 Binds to 127.0.0.1 only (student data). Never writes anything: the database is
 opened read-only and reloaded when a new build replaces it.
 """
+import bisect
 import datetime as dt
 import json
 import re
@@ -95,6 +96,29 @@ def jl(s):
         return []
 
 
+def same_result(a, b):
+    """Same athlete's same race listed twice: same day, same distance, times within 0.1 s."""
+    return (a["date"] == b["date"] and a["seconds"] and b["seconds"] and a["distance_m"] and b["distance_m"]
+            and abs(a["distance_m"] - b["distance_m"]) < 1 and abs(a["seconds"] - b["seconds"]) <= 0.1)
+
+
+def distinct_races(rows):
+    """Each race once, for calendars and race lists. Some results are in both the XC and the track export
+    (Mid-Season Mania); the first copy is kept and remembers the other kind in 'also'."""
+    out = []
+    for r in rows:
+        twin = next((o for o in out if o["kind"] != r["kind"] and same_result(o, r)), None)
+        if twin:
+            twin["also"] = r["kind"]
+            continue
+        out.append(dict(r))
+    return out
+
+
+def session_rank(n):
+    return n if isinstance(n, int) else 99
+
+
 class Data:
     def __init__(self, path):
         con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
@@ -108,6 +132,8 @@ class Data:
         self.ab, self.reps, self.days = table("athlete_blocks"), table("reps"), table("days")
         self.races, self.mileage = table("races"), table("weekly_mileage")
         con.close()
+        # a result Athletic.net posted twice (two meet IDs for one race) is marked by the build; show it once
+        self.races = [r for r in self.races if not r.get("duplicate_of")]
 
         self.sheet = {s["sheet_key"]: s for s in self.sheets}
         self.block = {b["block_key"]: b for b in self.blocks}
@@ -141,6 +167,10 @@ class Data:
             lst.sort(key=lambda p: p["line_no"])
         for lst in self.reps_by_athlete_block.values():
             lst.sort(key=lambda r: r["rep_no"])
+        for k, lst in self.ab_by_athlete.items():
+            lst.sort(key=lambda a: (a["date"], session_rank(a["session_no"]), self.block.get(a["block_key"], {}).get("block_no") or 0))
+        for lst in self.races_by_athlete.values():
+            lst.sort(key=lambda r: (r["date"], r["kind"], r["event"]))
 
         self.seasons = sorted({s["season"] for s in self.sheets})
         self.varsity = defaultdict(set)
@@ -203,6 +233,10 @@ class Data:
         def order(r):
             place = re.match(r"\d+", str(r["place"] or ""))
             return (not is_xc_varsity(r), r["gender"], r["race_name"], int(place.group()) if place else 999)
+        by_athlete = defaultdict(list)
+        for r in rows:
+            by_athlete[akey(r)].append(r)
+        rows = [r for lst in by_athlete.values() for r in distinct_races(lst)]
         return [{"athlete": r["athlete_name"], "key": akey(r), "kind": r["kind"], "meet": r["meet_name"],
                  "event": r["event"], "race": r["race_name"], "mark": r["mark"], "place": r["place"],
                  "url": r["source_url"], "date": r["date"]}
@@ -261,10 +295,15 @@ class Data:
                 "varsity_available": bool(self.varsity.get(season)), "varsity_count": len(self.varsity.get(season, ())),
                 "first_month": f"{start}-07", "last_month": f"{start + 1}-06", "days": days}
 
-    def day(self, date, f):
+    def day(self, date, f, hl=None):
+        """hl: an athlete key to highlight (opened from that athlete's calendar). Their groups and races are
+        shown even when the varsity filter would hide them, and prev / next step through their days."""
         sheets = self.sheets_by_date.get(date, [])
         season = sheets[0]["season"] if sheets else season_of(date)
         F = self.filter_set(season, f)
+        hl = hl if hl in self.athletes else None
+        if hl and F is not None:
+            F = F | {hl}
         sessions = []
         for s in sorted(sheets, key=self.session_order):
             blocks, hidden = [], 0
@@ -281,15 +320,21 @@ class Data:
                 "blocks": blocks, "hidden_groups": hidden,
             })
         row = self.day_row.get(date, {})
-        all_dates = sorted(set(self.sheets_by_date) | set(self.races_by_date))
+        all_dates = self.athlete_dates(hl) if hl else sorted(set(self.sheets_by_date) | set(self.races_by_date))
         i = all_dates.index(date) if date in all_dates else -1
+        if i < 0:  # a day not in the list: step from where it would sit
+            j = bisect.bisect_left(all_dates, date)
+            prev, nxt = (all_dates[j - 1] if j > 0 else None), (all_dates[j] if j < len(all_dates) else None)
+        else:
+            prev, nxt = (all_dates[i - 1] if i > 0 else None), (all_dates[i + 1] if i < len(all_dates) - 1 else None)
         return {
             "date": date, "season": season, "filter": "varsity" if F is not None else "all",
             "varsity_available": bool(self.varsity.get(season)),
             "double": bool(row.get("double_threshold")), "church": bool(row.get("church_loop")),
             "sessions": sessions, "races": self.race_rows(self.races_by_date.get(date, []), F),
-            "prev": all_dates[i - 1] if i > 0 else None,
-            "next": all_dates[i + 1] if 0 <= i < len(all_dates) - 1 else None,
+            "prev": prev, "next": nxt,
+            "highlight": {"key": hl, "name": self.athletes[hl]["name"],
+                          "varsity": hl in self.varsity.get(season, ())} if hl else None,
         }
 
     def _block_detail(self, b, shown, F):
@@ -337,11 +382,60 @@ class Data:
         }
 
     def athlete_list(self):
-        out = []
-        for e in self.athletes.values():
-            out.append({**e, "seasons": sorted(e["seasons"]),
-                        "varsity_seasons": sorted(s for s in e["seasons"] if e["key"] in self.varsity.get(s, ()))})
-        return sorted(out, key=lambda e: e["name"].lower())
+        return sorted((self.head(k) for k in self.athletes), key=lambda e: e["name"].lower())
+
+    def head(self, key):
+        """An athlete's directory entry: name, Athletic.net ID, seasons (workbooks or races), varsity seasons."""
+        e = self.athletes[key]
+        return {**e, "seasons": sorted(e["seasons"]),
+                "varsity_seasons": sorted(s for s in e["seasons"] if key in self.varsity.get(s, ()))}
+
+    def athlete_block_chips(self, key, block_key):
+        """The types of this athlete's own reps in a group (inferred stays inferred); the group's label
+        chips when they have no reps there."""
+        rr = self.reps_by_athlete_block.get((key, block_key), [])
+        if rr:
+            return merge_chips([chip(r["workout_type"], r["band"], r["band_detail"], r["type_source"] or "sheet") for r in rr])
+        return merge_chips(self.label_chips(block_key))
+
+    def athlete_dates(self, key):
+        return sorted({a["date"] for a in self.ab_by_athlete.get(key, [])}
+                      | {r["date"] for r in self.races_by_athlete.get(key, [])})
+
+    def athlete_calendar(self, key, season=None):
+        """Days this athlete trained (is on a workout sheet) or raced in one season, for the month grid."""
+        if key not in self.athletes:
+            return None
+        head = self.head(key)
+        seasons = head["seasons"]
+        if season not in seasons:
+            season = seasons[-1] if seasons else ""
+        days = {}
+
+        def day(d):
+            return days.setdefault(d, {"chips": [], "groups": [], "church": False, "races": []})
+        for a in self.ab_by_athlete.get(key, []):
+            if a["season"] != season:
+                continue
+            s, b = self.sheet.get(a["sheet_key"], {}), self.block.get(a["block_key"], {})
+            x = day(a["date"])
+            x["chips"] += self.athlete_block_chips(key, a["block_key"])
+            x["groups"].append({"session_no": a["session_no"], "block_no": b.get("block_no"), "tab": s.get("tab", ""),
+                                "venue": s.get("venue", "")})
+            x["church"] = x["church"] or bool(s.get("church_loop"))
+        for r in distinct_races(self.races_by_athlete.get(key, [])):
+            if season_of(r["date"]) != season:
+                continue
+            day(r["date"])["races"].append({"meet": r["meet_name"], "event": r["event"], "race": r["race_name"],
+                                            "mark": r["mark"], "place": r["place"], "kind": r["kind"],
+                                            "also": r.get("also", ""), "varsity_race": is_xc_varsity(r)})
+        out = {}
+        for d, x in sorted(days.items()):
+            nos = {g["session_no"] for g in x["groups"] if isinstance(g["session_no"], int)}
+            out[d] = {"chips": merge_chips(x["chips"]), "groups": x["groups"], "practice": bool(x["groups"]),
+                      "church": x["church"], "races": x["races"],
+                      "double": bool(self.day_row.get(d, {}).get("double_threshold")) and {1, 2} <= nos}
+        return {"athlete": head, "season": season, "days": out}
 
     def athlete(self, key, season=None, cat=None):
         e = self.athletes.get(key)
@@ -353,9 +447,7 @@ class Data:
                 continue
             b, s = self.block.get(a["block_key"]), self.sheet.get(a["sheet_key"])
             rr = self.reps_by_athlete_block.get((key, a["block_key"]), [])
-            chips = merge_chips([chip(r["workout_type"], r["band"], r["band_detail"], r["type_source"] or "sheet") for r in rr])
-            if not rr:
-                chips = merge_chips(self.label_chips(a["block_key"]))
+            chips = self.athlete_block_chips(key, a["block_key"])
             if cat and not any(_combo_match(c, cat) for c in chips):
                 continue
             items.append({
@@ -371,7 +463,7 @@ class Data:
                           "chip": chip(r["workout_type"], r["band"], r["band_detail"], r["type_source"] or "sheet")}
                          for r in rr],
             })
-        for r in self.races_by_athlete.get(key, []):
+        for r in distinct_races(self.races_by_athlete.get(key, [])):
             if season and season_of(r["date"]) != season:
                 continue
             items.append({"kind": "race", "date": r["date"], "season": season_of(r["date"]), "meet": r["meet_name"],
@@ -380,9 +472,7 @@ class Data:
                           "varsity_race": is_xc_varsity(r)})
         items.sort(key=lambda x: (x["date"], 0 if x["kind"] == "race" else 1, str(x.get("session_no", ""))), reverse=True)
         mileage = [m for m in self.mileage_by_athlete.get(e["athlete_id"], []) if not season or season_of(m["week_start"]) == season]
-        return {**e, "seasons": sorted(e["seasons"]),
-                "varsity_seasons": sorted(s for s in e["seasons"] if key in self.varsity.get(s, ())),
-                "items": items,
+        return {**self.head(key), "items": items,
                 "mileage": sorted(({"week_start": m["week_start"], "week_end": m["week_end"], "miles": m["miles"],
                                     "partial": bool(m["partial_week"]), "note": m["week_note"]} for m in mileage),
                                   key=lambda m: m["week_start"])}
@@ -438,7 +528,9 @@ class Data:
                 "labels": [p["label_raw"] for p in self.presc_by_block.get(b["block_key"], [])
                            if _combo_match(chip(p["workout_type"], p["band"], p["band_detail"]) or {}, combo)],
                 "chips": chips, "src": "sheet" if any(c["src"] != "inferred" for c in chips) else "inferred",
-                "group": sorted({a["athlete_name"] for a in shown}), "targets": _key_targets(reps),
+                "group": [{"name": n, "key": k} for k, n in sorted({(akey(a), a["athlete_name"]) for a in shown},
+                                                                    key=lambda x: x[1].lower())],
+                "targets": _key_targets(reps),
             })
         rows.sort(key=lambda r: (r["date"], str(r["session_no"]), r["block_no"]), reverse=True)
         return rows
@@ -526,7 +618,7 @@ def create_app(db_path=DB):
     def api_day(date):
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
             abort(404)
-        return jsonify(data().day(date, request.args.get("f", "varsity")))
+        return jsonify(data().day(date, request.args.get("f", "varsity"), request.args.get("a") or None))
 
     @app.get("/api/athletes")
     def api_athletes():
@@ -536,6 +628,13 @@ def create_app(db_path=DB):
     def api_athlete():
         res = data().athlete(request.args.get("key", ""), request.args.get("season") or None,
                              request.args.get("cat") or None)
+        if res is None:
+            abort(404)
+        return jsonify(res)
+
+    @app.get("/api/athlete/calendar")
+    def api_athlete_calendar():
+        res = data().athlete_calendar(request.args.get("key", ""), request.args.get("season") or None)
         if res is None:
             abort(404)
         return jsonify(res)
