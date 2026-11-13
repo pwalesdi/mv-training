@@ -96,17 +96,45 @@ def _is_variant_header(row):
             and sum(1 for c in row[2:] if _numeric_distance(c) is not None) >= 1)
 
 
+MARK_RE = re.compile(r"^(.*?)\s*([*?!]+)\s*$")  # 'Doe, Jane**', 'Smith, Alex ???' - a mark after the name
+# A name written without its comma ('Jane Doe', 'Doe Jane'): 2-3 capitalized words. Only accepted
+# inside an athlete area, and not when a word is one of the row labels seen there ('Per Lap', '200m split').
+PLAIN_NAME_RE = re.compile(r"^\s*([A-Z][A-Za-z'\-\.]+(?:\s+[A-Z][A-Za-z'\-\.]+){1,2})\s*$")
+NOT_NAME_WORDS = {"per", "lap", "laps", "summary", "split", "splits", "total", "rest", "pace", "avg", "average",
+                  "group", "groups", "boys", "girls", "varsity", "jv", "frosh", "soph", "coach", "notes", "note",
+                  "warm", "cool", "down", "up", "kick", "extra", "mile", "miles", "time", "times", "session",
+                  "target", "targets", "week", "workout", "relay", "team"}
+
+
 def parse_name(v):
-    """'Last, First' -> ('First Last', None); '(8/6)'-style suffixes returned separately."""
+    """'Last, First' -> ('First Last', None); '(8/6)'-style suffixes and a trailing */?/! mark are
+    returned separately as the suffix."""
     if not isinstance(v, str):
         return None
+    mark = None
+    mm = MARK_RE.match(v)
+    if mm and mm.group(1):
+        v, mark = mm.group(1), mm.group(2)
     m = NAME_RE.match(v)
     if not m:
         return None
     last, first, extra = m.group(1).strip(), m.group(2).strip(), m.group(3)
     if last.lower().startswith(SUMMARY_PREFIXES) or last.lower() in ("rest", "note", "notes"):
         return None
-    return f"{first} {last}", (extra.strip("() ") if extra else None)
+    suffix = extra.strip("() ") if extra else None
+    if mark:
+        suffix = f"{suffix} {mark}" if suffix else mark
+    return f"{first} {last}", suffix
+
+
+def parse_plain_name(v):
+    """'Jane Doe' / 'Doe Jane' -> the name as written (word order unknown), else None."""
+    if not isinstance(v, str):
+        return None
+    m = PLAIN_NAME_RE.match(v)
+    if not m or any(w.lower().strip(".") in NOT_NAME_WORDS for w in m.group(1).split()):
+        return None
+    return " ".join(m.group(1).split())
 
 
 def _rep_cell(v):
@@ -189,6 +217,10 @@ def parse_sheet(ws, fixes=None):
             row = g[r]
             sa = a.strip().lower() if isinstance(a, str) else ""
             nm = parse_name(a)
+            plain = None
+            if not nm:  # inside an athlete area a name may be written without its comma
+                plain = parse_plain_name(a)
+                nm = (plain, None) if plain else None
             if _is_variant_header(row):
                 tgt_row = g[r + 1] if r + 1 < len(g) and blank(_a(g[r + 1])) else [None] * MAX_COL
                 variant = {c: (_numeric_distance(row[c]), to_seconds(tgt_row[c]))
@@ -225,6 +257,7 @@ def parse_sheet(ws, fixes=None):
                     "distances": a_dist,
                     "targets": a_tgt,
                     "variant": bool(variant),
+                    "plain_name": bool(plain),  # no comma: word order unknown, matching tries both
                     "cooldown_mi": to_miles(row[cool_col]) if cool_col is not None else None,
                     "total_vol_mi": to_miles(row[tot_col]) if tot_col is not None else None,
                     "notes": " | ".join(extra),

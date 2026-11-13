@@ -96,14 +96,25 @@ def _cell_fixes(ws, rows, season, review):
     return out
 
 
-def resolve(name, aliases, by_name, id_names):
-    k = races.norm(name)
-    if k in aliases:
-        aid = aliases[k]["athlete_id"]
-        return aid, id_names.get(aid, aliases[k]["athletic_net_name"]), "alias"
-    if k in by_name:
-        aid = by_name[k]
-        return aid, id_names[aid], "exact"
+def name_orders(name, plain=False):
+    """The name as parsed, plus - for a name written without its comma ('Doe Jane') - the same words
+    with the first or last word moved to the other end, since the order isn't known."""
+    words = name.split()
+    out = [name]
+    if plain and len(words) > 1:
+        out += [" ".join(words[1:] + words[:1]), " ".join(words[-1:] + words[:-1])]
+    return list(dict.fromkeys(out))
+
+
+def resolve(name, aliases, by_name, id_names, plain=False):
+    for n in name_orders(name, plain):
+        k = races.norm(n)
+        if k in aliases:
+            aid = aliases[k]["athlete_id"]
+            return aid, id_names.get(aid, aliases[k]["athletic_net_name"]), "alias"
+        if k in by_name:
+            aid = by_name[k]
+            return aid, id_names[aid], "exact"
     return "", name, "unmatched"
 
 
@@ -214,8 +225,10 @@ def _do_sheet(ws, season, book, date, types, aliases, ath_notes, by_name, id_nam
         # athletes
         resolved = []
         for a in b["athletes"]:
-            aid, canon, how = resolve(a["name"], aliases, by_name, id_names)
-            note = ath_notes.get((races.norm(a["name"]), season))
+            plain = a.get("plain_name", False)
+            aid, canon, how = resolve(a["name"], aliases, by_name, id_names, plain)
+            note = next((ath_notes[(races.norm(n), season)] for n in name_orders(a["name"], plain)
+                         if (races.norm(n), season) in ath_notes), None)
             if note and note["status"] == "exclude":
                 continue  # out of scope (data/rules/athletes.csv)
             resolved.append((a, aid, canon, how, note["status"] if note else ""))
