@@ -28,7 +28,7 @@ def to_seconds(v):
         if 0 < v < 1:
             return round(v * 86400, 2)
         return None
-    s = str(v).strip().lower()
+    s = re.sub(r"\.{2,}", ".", str(v).strip().lower())  # '2:28..0' typo -> '2:28.0'
     m = re.fullmatch(r"(?:(\d+):)?(\d{1,2}):(\d{1,2}(?:\.\d+)?)", s)
     if m:
         h = int(m.group(1) or 0)
