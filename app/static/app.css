@@ -236,3 +236,59 @@ table.list.compact th, table.list.compact td { padding: 3px 8px; }
 }
 details summary { cursor: pointer; color: var(--ink-2); font-size: 12px; }
 .nowrap { white-space: nowrap; }
+
+/* header filter: only on the team calendar, its day view and Workouts */
+.filter[hidden] { display: none; }
+
+/* segmented buttons (Current / Historical, Weekly / Monthly) */
+.seg { display: inline-flex; border: 1px solid var(--line-2); border-radius: 6px; overflow: hidden; }
+.seg button { font: inherit; font-size: 13px; padding: 4px 12px; border: 0; background: var(--surface); color: var(--ink-2); cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line-2); }
+.seg button.on { background: var(--ink); color: var(--surface); }
+.seg button:disabled { color: var(--muted); cursor: default; }
+.seg .count { font-size: 11px; opacity: .8; margin-left: 2px; font-variant-numeric: tabular-nums; }
+table.list.athletes td:nth-child(2) { color: var(--ink-2); }
+
+/* athlete calendar: compact, so a month fits on a laptop screen; a Week column; days tinted by main workout */
+.acal .month { margin: 12px 0 6px; }
+.acal .month h2 { font-size: 14px; margin: 0 0 4px; }
+.acal .grid { gap: 3px; }
+.acal .grid.with-weeks { grid-template-columns: repeat(7, minmax(0, 1fr)) 56px; }
+.acal .dow { font-size: 10px; }
+.acal .cell { min-height: 0; height: 84px; padding: 2px 4px; gap: 1px; border-radius: 5px; }
+.acal .cell > * { flex-shrink: 0; }  /* a busy day clips at the bottom; the date row never gets squeezed */
+.acal .cell .top-row { gap: 3px; flex-wrap: nowrap; overflow: hidden; min-height: 15px; }
+.acal .cell .dnum { font-size: 11px; }
+.acal .badge { font-size: 10px; line-height: 14px; padding: 0 3px; }
+.acal .chip { font-size: 11px; line-height: 15px; }
+.acal .chips { gap: 1px; }
+.acal .cell .racename, .acal .cell .raceres, .acal .cell .run, .acal .cell .cross, .acal .cell .more, .acal .cell .quiet { font-size: 10.5px; line-height: 13px; }
+.acal .cell .runs { margin-top: 0; }
+.cell.m { background: color-mix(in srgb, var(--c) 20%, var(--surface)); border-color: color-mix(in srgb, var(--c) 45%, var(--surface)); box-shadow: inset 4px 0 0 var(--c); }
+.cell.m.inf {
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--c) 13%, var(--surface)) 0 4px, var(--surface) 4px 9px);
+  border-color: var(--line); border-style: dashed; box-shadow: inset 4px 0 0 color-mix(in srgb, var(--c) 40%, var(--surface));
+}
+a.cell.m:hover { background: color-mix(in srgb, var(--c) 30%, var(--surface)); border-color: var(--c); }
+.wk { display: flex; flex-direction: column; justify-content: center; align-items: flex-end; padding: 2px 6px; border-radius: 5px;
+  font-variant-numeric: tabular-nums; color: var(--ink); background: var(--surface); border: 1px solid var(--line); }
+.wk b { font-size: 14px; font-weight: 600; }
+.wk span { font-size: 10px; color: var(--muted); }
+.wk.partial b { color: var(--ink-2); font-weight: 400; }
+.wk.empty { background: transparent; border-style: dashed; }
+.dow.wkh { text-align: right; }
+.legend.tintkey { margin-top: 4px; }
+.legend .sw { display: inline-block; width: 22px; height: 12px; border-radius: 3px; margin-right: 5px; vertical-align: -2px;
+  background: color-mix(in srgb, var(--c) 20%, var(--surface)); box-shadow: inset 4px 0 0 var(--c); border: 1px solid color-mix(in srgb, var(--c) 45%, var(--surface)); }
+.legend .sw.inf { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--c) 13%, var(--surface)) 0 3px, var(--surface) 3px 6px);
+  box-shadow: inset 4px 0 0 color-mix(in srgb, var(--c) 40%, var(--surface)); border: 1px dashed var(--line-2); }
+
+/* monthly chart: the month in progress */
+.chart .barnote { fill: var(--ink-2); font-size: 11px; }
+/* race charts: weekly run miles, faded, behind the race marks */
+.chart .obar { fill: var(--ink-2); fill-opacity: .16; }
+.chart .obar.partial { fill-opacity: .08; }
+.chartkey .k-obar { background: var(--ink-2); opacity: .3; }
+table.list td.num, table.list th.num { text-align: right; }
+.bar input[type=search] { min-width: 250px; }
+.acal .cell.m { padding-left: 8px; }

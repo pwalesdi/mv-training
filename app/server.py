@@ -142,7 +142,7 @@ class Data:
         self.ab, self.reps, self.days = table("athlete_blocks"), table("reps"), table("days")
         self.races = table("races")
         # Strava: activities, and the weekly series the Mileage tab shows (activities and / or the weekly export)
-        self.acts, self.weeks = table("activities"), table("athlete_weeks")
+        self.acts, self.weeks, self.months = table("activities"), table("athlete_weeks"), table("athlete_months")
         self.settings = {r["setting"]: r["value"] for r in table("settings")}  # rules/mileage.csv as built
         con.close()
         # a result Athletic.net posted twice (two meet IDs for one race) is marked by the build; show it once
@@ -175,6 +175,9 @@ class Data:
             self.weeks_by_athlete[w["athlete_id"]].append(w)
         for lst in self.weeks_by_athlete.values():
             lst.sort(key=lambda w: w["week_start"])
+        self.months_by_athlete = defaultdict(list)
+        for m in sorted(self.months, key=lambda m: m["month"]):
+            self.months_by_athlete[m["athlete_id"]].append(m)
         for a in self.acts:
             if a.get("athlete_id"):
                 self.acts_by_athlete_date[(a["athlete_id"], a["date"])].append(a)
@@ -222,6 +225,13 @@ class Data:
         for aid, dates in self.act_dates.items():  # a season with Strava activities is one of the athlete's seasons
             if aid in self.athletes:
                 self.athletes[aid]["seasons"] |= {season_of(d) for d in dates}
+        # current = on a workout sheet in the newest workbook's season, or raced for MV in that season (Jul-Jun)
+        self.current_season = self.seasons[-1] if self.seasons else ""
+        self.current = ({akey(a) for a in self.ab if a["season"] == self.current_season}
+                        | {akey(r) for r in self.races if season_of(r["date"]) == self.current_season})
+        for k, e in self.athletes.items():
+            e["current"] = k in self.current
+            e["strava"] = bool(e["athlete_id"] and self.weeks_by_athlete.get(e["athlete_id"]))
 
     # ---- helpers -------------------------------------------------------------------------------
     def filter_set(self, season, f):
@@ -289,6 +299,7 @@ class Data:
             "default_month": f"20{latest[:2]}-08" if latest else "",
             "categories": [{"type": k, "name": v} for k, v in CATEGORIES.items()],
             "varsity_rule": VARSITY_RULE,
+            "current_season": self.current_season,
         }
 
     def calendar(self, season, f):
@@ -423,6 +434,36 @@ class Data:
             return merge_chips([chip(r["workout_type"], r["band"], r["band_detail"], r["type_source"] or "sheet") for r in rr])
         return merge_chips(self.label_chips(block_key))
 
+    def athlete_block_weights(self, key, a):
+        """{(type, own): metres} of this athlete's reps in one group; own = Patrick's (label line or rule file), not
+        inferred. A rep with no distance counts 1. A group without rep columns counts its label types by the
+        athlete's total volume that day (or 1)."""
+        out = Counter()
+        rr = self.reps_by_athlete_block.get((key, a["block_key"]), [])
+        for r in rr:
+            if r["workout_type"] in CATEGORIES:
+                out[(r["workout_type"], r["type_source"] != "inferred")] += r["distance_m"] or 1
+        if not rr:
+            for c in self.label_chips(a["block_key"]):
+                if c["type"] in CATEGORIES:
+                    out[(c["type"], True)] += (a["total_vol_mi"] or 0) * 1609.34 or 1
+        return out
+
+    @staticmethod
+    def main_type(weights):
+        """The day's main workout category: the workout category (not easy aerobic, unless that's all there is)
+        with the most rep distance; src 'inferred' when most of that category's distance was inferred from pace."""
+        by = Counter()
+        for (t, _), w in weights.items():
+            by[t] += w
+        work = [t for t in by if t != "easy_aerobic"] or list(by)
+        if not work:
+            return None
+        order = list(CATEGORIES)
+        t = max(work, key=lambda t: (by[t], -order.index(t)))
+        return {"type": t, "src": "sheet" if weights.get((t, True), 0) >= weights.get((t, False), 0) else "inferred",
+                "name": CATEGORIES[t]}
+
     def athlete_dates(self, key):
         aid = self.athletes.get(key, {}).get("athlete_id")
         return sorted({a["date"] for a in self.ab_by_athlete.get(key, [])}
@@ -455,7 +496,8 @@ class Data:
         days = {}
 
         def day(d):
-            return days.setdefault(d, {"chips": [], "groups": [], "church": False, "races": [], "runs": [], "cross": []})
+            return days.setdefault(d, {"chips": [], "groups": [], "church": False, "races": [], "runs": [], "cross": [],
+                                       "weights": Counter()})
         for d in sorted(self.act_dates.get(head["athlete_id"], ())) if head["athlete_id"] else []:
             if season_of(d) != season:
                 continue
@@ -471,6 +513,7 @@ class Data:
             s, b = self.sheet.get(a["sheet_key"], {}), self.block.get(a["block_key"], {})
             x = day(a["date"])
             x["chips"] += self.athlete_block_chips(key, a["block_key"])
+            x["weights"].update(self.athlete_block_weights(key, a))
             x["groups"].append({"session_no": a["session_no"], "block_no": b.get("block_no"), "tab": s.get("tab", ""),
                                 "venue": s.get("venue", "")})
             x["church"] = x["church"] or bool(s.get("church_loop"))
@@ -485,8 +528,16 @@ class Data:
             nos = {g["session_no"] for g in x["groups"] if isinstance(g["session_no"], int)}
             out[d] = {"chips": merge_chips(x["chips"]), "groups": x["groups"], "practice": bool(x["groups"]),
                       "church": x["church"], "races": x["races"], "runs": x["runs"], "cross": x["cross"],
-                      "double": bool(self.day_row.get(d, {}).get("double_threshold")) and {1, 2} <= nos}
-        return {"athlete": head, "season": season, "days": out, "long_run_min_miles": self.long_run_rule()}
+                      "double": bool(self.day_row.get(d, {}).get("double_threshold")) and {1, 2} <= nos,
+                      "main": self.main_type(x["weights"])}
+        # each Monday-Sunday week's run miles (athlete_weeks) for the total at the end of the calendar's week rows
+        weeks = {}
+        for w in self.weeks_by_athlete.get(head["athlete_id"], []) if head["athlete_id"] else []:
+            if season in (season_of(w["week_start"]), season_of(w["week_end"])):
+                weeks[w["week_start"]] = {"miles": w["run_miles"], "partial": bool(w["partial_week"]), "note": w["week_note"] or "",
+                                          "source": w["source"], "n_runs": w["n_runs"], "no_dist": w["runs_no_distance"],
+                                          "long_run_mi": w["longest_run_mi"] if w.get("long_run") else None}
+        return {"athlete": head, "season": season, "days": out, "weeks": weeks, "long_run_min_miles": self.long_run_rule()}
 
     def athlete(self, key, season=None, cat=None):
         e = self.athletes.get(key)
@@ -545,16 +596,22 @@ class Data:
         acts = [a for d in sorted(self.act_dates.get(aid, ())) for a in self.acts_by_athlete_date[(aid, d)]
                 if a["counts_as"] in ("run", "cross")] if aid else []
         both = [w for w in self.weeks if w["activity_run_miles"] is not None and w["export_miles"] is not None]
-        return {"athlete": head, "weeks": weeks, "all_weeks_span": span, "n_athletes_with_mileage": len(self.weeks_by_athlete),
+        months = [{"month": m["month"], "month_start": m["month_start"], "month_end": m["month_end"], "miles": m["run_miles"],
+                   "n_runs": m["n_runs"], "no_dist": m["runs_no_distance"], "cross_min": m["cross_min"],
+                   "days": m["days_with_data"], "days_in_month": m["days_in_month"], "export_days": m["export_days"],
+                   "partial": bool(m["partial"]), "note": m["month_note"] or ""}
+                  for m in (self.months_by_athlete.get(aid, []) if aid else [])]
+        return {"athlete": head, "weeks": weeks, "months": months, "all_weeks_span": span, "n_athletes_with_mileage": len(self.weeks_by_athlete),
                 "activities": {"first": acts[0]["date"], "last": acts[-1]["date"], "n": len(acts)} if acts else None,
                 "prefer": "export" if any(w["source"] == "export" for w in both) else "activities",
                 "long_run_min_miles": self.long_run_rule()}
 
     def athlete_races(self, key):
         """Track: every result per event, oldest first, with PRs (faster than everything before it in that
-        event; 'best' = the lifetime PR). XC: courses (same meet AND distance, see mvtrain/races.py) run
-        more than once (two or more results with a time; a DNS / DNF doesn't count), and every XC race. Times
-        only - nothing is converted between events or courses."""
+        event; 'best' = the lifetime PR). XC: courses (same meet AND distance, see mvtrain/races.py - or one
+        course across distances when rules/xc_courses.csv says so) run more than once (two or more results with
+        a time; a DNS / DNF doesn't count), and every XC race. Times only - nothing is converted between events
+        or courses."""
         if key not in self.athletes:
             return None
         rows = self.races_by_athlete.get(key, [])
@@ -592,9 +649,13 @@ class Data:
             prev, out = None, []
             for r in lst:
                 delta = round(r["seconds"] - prev["seconds"], 2) if prev and r["seconds"] else None
-                out.append({**base(r), "delta": delta, "varsity_race": is_xc_varsity(r)})
+                out.append({**base(r), "delta": delta, "varsity_race": is_xc_varsity(r),
+                            "prev_event": prev["event"] if delta is not None and prev["event"] != r["event"] else ""})
                 prev = r if r["seconds"] else prev
-            repeated.append({"key": k, "meet": lst[-1]["xc_meet"], "event": lst[-1]["event"], "results": out})
+            # a course from rules/xc_courses.csv can have a different distance each year: name them all
+            events = sorted({r["event"] for r in lst}, key=lambda e: min(r["distance_m"] or 0 for r in lst if r["event"] == e))
+            repeated.append({"key": k, "meet": lst[-1].get("xc_course_name") or lst[-1]["xc_meet"], "event": lst[-1]["event"],
+                             "events": events, "named": bool(lst[-1].get("xc_course_name")), "results": out})
         repeated.sort(key=lambda c: c["results"][-1]["date"], reverse=True)
         keys = {c["key"] for c in repeated}
         xc_list = sorted(({**base(r), "xc_meet": r.get("xc_meet", ""), "course": r.get("xc_course", "") if r.get("xc_course") in keys else "",

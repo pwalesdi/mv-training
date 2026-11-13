@@ -37,39 +37,57 @@ Reads `data/build/training.sqlite` (run the build first) and picks up a rebuild 
 restart. It only ever binds to 127.0.0.1 - the data is student data. Views: team calendar
 (default; season picker, month grid, chips, double-threshold / church-loop / race markers),
 day view (every session and group with your label text, athletes x reps, targets, rest,
-group-timed splits), athlete page, and workouts by type (every session of a category/band,
-newest first). The Varsity / All athletes toggle applies to the team views; varsity = ran a
-varsity-level cross-country race that season (see `app/server.py`). Inferred types are
-dashed, italic and labelled "inferred".
+group-timed splits), the athletes list and athlete pages, and workouts by type (every session of a
+category/band, newest first). The Varsity / All athletes toggle belongs to the team calendar (and its
+day and workout views; it's hidden on the athlete pages); varsity = ran a varsity-level
+cross-country race that season (see `app/server.py`). Inferred types are dashed, italic and
+labelled "inferred".
 
-Athlete page (open it from the athlete list or by clicking a name anywhere - day view, races,
-workouts):
+**Athletes** (top bar, between Calendar and Workouts): **Current** by default - everyone on a
+workout sheet in the newest workbook's season, or who raced for MV in that season (July-June) -
+and **Historical** for everyone else. The search box searches both lists (each tab shows how many
+match). Click a name for the athlete page; a name anywhere else (day view, races, workouts) links
+to it too.
+
+Athlete page:
 - **Calendar** (default): the same month grid, for one season (picker), with only the days
-  the athlete is on a workout sheet, raced, or recorded a Strava run or cross-training. Chips are
-  the types of their own reps; race days show meet, event and mark; 2× T means they did both
-  sessions of a double day. Strava runs show distance · pace per mile (a busy day: the number of
-  runs and their total, then the biggest); **bold** is the longest run of that Monday-Sunday week,
-  and it reads "Long run" when it is at least `long_run_min_miles` in `rules/mileage.csv` (blank =
-  no long runs marked yet). Clicking a day opens the day view with
+  the athlete is on a workout sheet, raced, or recorded a Strava run or cross-training - compact,
+  so a month fits on a laptop screen without scrolling. Each day is tinted by its main workout:
+  the category (same colors as the chips) with the most rep distance that day, easy aerobic only
+  when there's nothing else - solid when it comes from your label or `rules/line_overrides.csv`,
+  striped and lighter when it was inferred from pace. The Week column at the end of each row is
+  that Monday-Sunday week's Strava run miles (blank: no data; * partial week). Chips are the types
+  of their own reps; race days show meet, event and mark; 2× T means they did both sessions of a
+  double day. Strava runs show distance · pace per mile (a busy day: the number of runs and their
+  total, then the biggest); the week's longest run reads "Long run" when it is at least
+  `long_run_min_miles` in `rules/mileage.csv` (0 = every week's longest run; blank = none, and the
+  longest is just bold). Clicking a day opens the day view with
   their row highlighted (shown even under the varsity filter) and that day's Strava activities
   listed; prev / next there step through their days.
 - **History**: the timeline - sessions with every split, races, filters by season and type.
-- **Mileage**: weekly run miles (Monday-Sunday) across every season - from the athlete's Strava
-  activities (`data/strava/`), or the weekly export (`data/mileage/`) for weeks without them;
+- **Mileage**: run miles across every season with data, **Weekly** (Monday-Sunday) or **Monthly**
+  (calendar months) - a toggle above the charts. From the athlete's Strava activities
+  (`data/strava/`), or the weekly export (`data/mileage/`) for weeks without them;
   `rules/mileage.csv` picks when a week is in both, and the other number is kept in the hover and
-  the table. Runs only; cross-training (elliptical, rides, strength ...) is a second chart on the
-  same weeks, in hours, never added to the run miles. Season starts (1 July) are marked, partial
-  weeks are lighter, a dot marks weeks that also had runs with no distance (time only - they add
-  no miles), and weeks with no data are shaded and left empty - never filled from workbook
-  volume. Hover (or focus the chart and use the arrow keys) for each week; per-season totals and
-  every week are in tables below.
+  the table. In the monthly view each run counts in the month it was run; a weekly-export week
+  (a weekly total only) is spread evenly over its days, which the hover says. Runs only;
+  cross-training (elliptical, rides, strength ...) is a second chart on the same periods, in hours,
+  never added to the run miles (a note instead when there's none). Season starts (1 July) are
+  marked; partial weeks and months are lighter, and the month in progress is labelled "so far"; a
+  dot marks weeks that also had runs with no distance (time only - they add no miles); periods with
+  no data are shaded and left empty - never filled from workbook volume. An athlete with no
+  Strava data gets a note, not an empty chart. Hover (or focus the chart and use the arrow keys)
+  for each bar; per-season totals and every week / month are in tables below.
 - **Races**: track - one panel per event (800 / 1600 / 3200) on a shared time axis, faster
   higher, dots filled where the race was a PR when it was run, the lifetime PR labelled, hover for
   meet / mark / place. Cross country - every course the athlete ran more than once (two results
-  with a time - a DNS doesn't count; same meet *and* distance, so a meet that changed its distance
-  isn't compared across years), with a small
-  chart and each year's time, and every XC race as a plain list. Times only: nothing converts
-  between events or courses (no mile equivalents).
+  with a time - a DNS doesn't count; same meet *and* distance, unless `rules/xc_courses.csv` makes
+  a meet's distances one course, e.g. Lowell / San Francisco Invitational: raw times, each race's
+  distance in the hover and the table), with a small chart on a time axis and each year's time,
+  and every XC race as a plain list. Where the athlete has Strava data, their weekly run miles are
+  drawn as faded bars behind the race marks (no second axis: the tallest bar is their biggest
+  week, named in the key; the hover gives the race week's miles and the four weeks before). Times
+  only: nothing converts between events or courses (no mile equivalents).
 
 `python -m app --db other/training.sqlite --port 5051` runs it on another build (e.g. a test).
 
