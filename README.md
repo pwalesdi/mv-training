@@ -51,7 +51,9 @@ and re-run. The build is from scratch every time and never edits the workbooks.
 - **Double threshold day** = a 2025-26+ day with Session 1 and Session 2.
 - A rep belongs to a label line that states its distance, within ~2% (2.0 miles = the
   3200 column). A continuous line ("2.0 miles continuous", "3 Lap Threshold Run",
-  "Threshold Run: 6 Laps") owns all of its split columns.
+  "Threshold Run: 6 Laps") owns all of its split columns. A line covers as many columns
+  as it counts ("6x400m" = 6, "3x(2x200m)" = 6, "1 x 2lap" = 2 lap columns); once it
+  has them, the next line that states that distance takes over.
 - A rep no label line mentions is typed from its target pace, marked `inferred`.
   Inference is per rep, from the block's median mile fitness, so every athlete gets
   the same type for the same rep. With no target or no race marks it takes the type

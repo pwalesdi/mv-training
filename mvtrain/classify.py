@@ -272,22 +272,74 @@ def _fmt(v):
     return f"{x:g}K" if kind == "km" else x
 
 
+_N = r"(\d+)(?:\s*-\s*(\d+))?\s*x\s*"  # '6x', '4-6 x' - a range counts its top
+_SET = re.compile(_N + r"(?:split\b[^(]*)?\(([^)]*)\)")  # '3x(2x200m)', '6x(600-400 @ ...)', '5xSplit 1k (600m-400m)'
+_LAPS = re.compile(_N + r"(?:(\d+)\s*)?laps?\b")  # '5xLap', '6x1 lap', '1 x 2lap'
+_DIST = re.compile(_N + r"\d{3,5}\s*m?\b")  # '5x800m', '1x1600m'
+_BARE_LAPS = re.compile(r"(?<![\dx])\b(\d+)\s*laps?\b")  # '1 lap @ 10k' - one rep
+
+
+def _top(m):
+    return int(m.group(2) or m.group(1))
+
+
+def _set_size(inner, lap_cols):
+    """Reps in one set: '2x200m @ ...' -> 2, '600-400 @ ...' -> 2, '600m @ ... / 400 @ ...' -> 2."""
+    n = 0
+    for part in inner.split("/"):
+        head = part.split("@")[0]
+        sub = rep_count(head, lap_cols=lap_cols)
+        n += sub if sub else len(re.findall(r"\d{3,5}", head))
+    return n or 1
+
+
+def rep_count(presc, columns=(), lap_cols=None):
+    """How many header columns a line covers, from its 'N x' counts; None if it doesn't say.
+    Multi-lap reps ('1 x 2lap') count one column per lap when the header splits them into 1725 m laps."""
+    s = presc.lower()
+    if lap_cols is None:
+        lap_cols = not any(abs(c - k * CHURCH_LAP_M) <= TOL * k * CHURCH_LAP_M for c in columns for k in range(2, 9))
+    total, found = 0, False
+    for m in _SET.finditer(s):
+        total, found = total + _top(m) * _set_size(m.group(3), lap_cols), True
+    s = _SET.sub(" ", s)
+    for m in _LAPS.finditer(s):
+        k = int(m.group(3) or 1)
+        total, found = total + _top(m) * (k if lap_cols else 1), True
+    s = _LAPS.sub(" ", s)
+    for m in _DIST.finditer(s):
+        total, found = total + _top(m), True
+    s = _DIST.sub(" ", s)
+    for m in _BARE_LAPS.finditer(s):
+        total, found = total + (int(m.group(1)) if lap_cols else 1), True
+    return total if found else None
+
+
 def assign_reps(distances, lines):
     """Map each rep column to a label line by walking the reps in order.
 
     From the current line onward, the first line that either owns a continuous
     run starting here (all its splits) or mentions the rep's distance (within
-    TOL) takes it. A continuous line is used up once its run is assigned.
-    A rep no line takes stays with the current line, marked "guess" (the
-    build types those from pace, not from the line).
+    TOL) and still has reps left in its count ('5x800m' = 5) takes it. A
+    continuous line is used up once its run is assigned. If every line that
+    mentions the distance has used its count, the first of them takes it
+    anyway ("over count"). A rep no line mentions stays with the current
+    line, marked "guess" (the build types those from pace, not from the line).
     """
     if not lines:
         return [(None, "no label") for _ in distances]
     if len(lines) == 1:
         return [(0, "only label") for _ in distances]
+    caps = [rep_count(l["prescription"], distances) for l in lines]
+    used = [0] * len(lines)
     out, cur, i, done = [], 0, 0, set()
+    def expects_more(j, i):
+        """Line j has reps left in its count and states a distance still to come in the header."""
+        return (caps[j] is None or used[j] < caps[j]) and any(mentions(lines[j], x) for x in distances[i + 1:])
+
     while i < len(distances):
         d = distances[i]
+        took, full = False, None  # full: first line that states d but has used its count
         for j in range(cur, len(lines)):
             if j in done:
                 continue
@@ -295,13 +347,24 @@ def assign_reps(distances, lines):
             if span:
                 out += [(j, "continuous run")] * span
                 done.add(j)
-                cur, i = j, i + span
+                cur, i, took = j, i + span, True
                 break
             if mentions(lines[j], d):
-                out.append((j, "distance match"))
-                cur, i = j, i + 1
-                break
+                if caps[j] is None or used[j] < caps[j]:
+                    out.append((j, "distance match"))
+                    used[j] += 1
+                    cur, i, took = j, i + 1, True
+                    break
+                full = j if full is None else full
+            elif full is not None and expects_more(j, i):
+                break  # don't jump past a line whose reps are still to come
+        if took:
+            continue
+        if full is not None:
+            out.append((full, "distance match (over count)"))
+            used[full] += 1
+            cur = full
         else:
             out.append((cur, "guess"))
-            i += 1
+        i += 1
     return out
