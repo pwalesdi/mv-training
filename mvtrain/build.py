@@ -336,11 +336,13 @@ def build(seasons=None, out_dir=None, mileage_dir=None, strava_dir=None):
     acts, a_weeks, windows, a_review = strava.load(Path(strava_dir or DATA / "strava"), RULES,
                                                    PRIVATE_RULES / "strava_aliases.csv", PRIVATE_RULES / "strava_fixes.csv",
                                                    by_name, id_names, race_rows, excluded=lambda aid, s: athletes.excluded(s, aid))
-    weekly, w_review = strava.combine(a_weeks, m_rows, acts, windows,
-                                      strava.load_settings(RULES).get("weekly_source_when_both", "activities"))
+    settings = strava.load_settings(RULES)
+    strava.mark_long_runs(acts, a_weeks, strava.setting_miles(settings, "long_run_min_miles", a_review))
+    weekly, w_review = strava.combine(a_weeks, m_rows, acts, windows, settings.get("weekly_source_when_both", "activities"))
     T["activities"].extend(acts)
     T["athlete_weeks"].extend(weekly)
     T["review"].extend(a_review + w_review)
+    T["settings"].extend({"setting": k, "value": v} for k, v in settings.items())  # rules/mileage.csv, for the app
     for r in race_rows:
         if not athletes.excluded(mileage.season_of(r["date"]), r["athlete_id"]):
             T["races"].append({**r, "date": r["date"].isoformat()})

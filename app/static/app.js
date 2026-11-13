@@ -196,7 +196,7 @@ async function viewDay(date, q) {
 function activityLine(x) {
   const what = x.counts_as === 'run' || (x.counts_as === 'excluded' && x.sport === 'Run')
     ? (x.miles ? `Run ${fmtMi(x.miles)} mi${paceOk(x) ? ` at ${x.pace}/mi` : ''}` : 'Run, no distance recorded') : `${x.sport}${x.miles ? ` ${fmtMi(x.miles)} mi` : ''}`;
-  const bits = [what, x.moving, x.longest ? 'longest run of the week' : '', x.counts_as === 'cross' ? 'cross-training' : '',
+  const bits = [what, x.moving, x.long_run ? 'long run (the week’s longest)' : x.longest ? 'longest run of the week' : '', x.counts_as === 'cross' ? 'cross-training' : '',
     x.counts_as === 'other' ? 'not counted (rules/strava_sports.csv)' : '', x.counts_as === 'excluded' ? `left out - ${x.fix}` : '',
     x.check ? `check: ${x.check}` : ''].filter(Boolean);
   const link = /^https:\/\/www\.strava\.com\/activities\/\d+$/.test(x.url || '') ? ` <a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">Strava ↗</a>` : '';
@@ -328,7 +328,7 @@ async function athleteCalendar(key, q) {
   html += `<div class="bar"><select id="season" aria-label="Season">${opts}</select>
     <nav class="months" aria-label="Months">${months.map(m => `<a class="${withData.has(m) ? '' : 'empty'}" href="${athleteUrl(key, { season, m })}">${monthName(m, true)}</a>`).join('')}</nav>
     <span class="muted small">${plural(nT, 'workout-sheet day')} · ${plural(nR, 'race day')} · ${plural(nS, 'day')} with Strava runs in ${seasonLabel(season)}</span></div>`;
-  html += `<p class="muted small">Only the days ${esc(a.name)} is on a workout sheet, raced, or recorded a Strava run or cross-training. Chips are the types of their own reps (dashed = inferred from pace). Strava runs show distance · pace per mile; <b>bold</b> = the longest run of that Monday–Sunday week (a long-run candidate - no long-run rule set yet). Click a day for the full day with their row highlighted.</p>`;
+  html += `<p class="muted small">Only the days ${esc(a.name)} is on a workout sheet, raced, or recorded a Strava run or cross-training. Chips are the types of their own reps (dashed = inferred from pace). Strava runs show distance · pace per mile; <b>bold</b> = the longest run of that Monday–Sunday week${cal.long_run_min_miles !== null ? `, “Long run” when it is at least ${fmtMi(cal.long_run_min_miles)} mi (rules/mileage.csv)` : ' (a long-run candidate - no long-run rule set yet: rules/mileage.csv long_run_min_miles)'}. Click a day for the full day with their row highlighted.</p>`;
   html += legendHtml();
   for (const m of months) html += monthGrid(m, days, (iso, d, info) => athleteDayCell(iso, d, info, key));
   if (!months.length) html += `<p class="muted">No training, races or Strava activities in ${seasonLabel(season)}.</p>`;
@@ -364,8 +364,8 @@ function athleteDayCell(iso, d, info, key) {
 // (pace only from 0.1 mi up - shorter 'runs' are a watch started and stopped, and their pace means nothing)
 const miText = v => (Number(v) >= 1 ? fmtMi1(v) : fmtMi(v));
 const paceOk = r => r.pace && Number(r.miles) >= 0.1;
-const runShort = r => r.miles ? `${miText(r.miles)} mi${paceOk(r) ? ` · ${r.pace}` : ''}` : `${fmtMin((r.moving_s || 0) / 60)} · no distance`;
-const runText = r => `${r.miles ? `${fmtMi(r.miles)} mi run in ${r.moving}${paceOk(r) ? ` (${r.pace}/mi)` : ''}` : `run of ${r.moving}, no distance recorded`}${r.longest ? ' - longest run of the week' : ''}${r.check ? ` - check: ${r.check}` : ''}`;
+const runShort = r => `${r.long_run ? 'Long run ' : ''}${r.miles ? `${miText(r.miles)} mi${paceOk(r) ? ` · ${r.pace}` : ''}` : `${fmtMin((r.moving_s || 0) / 60)} · no distance`}`;
+const runText = r => `${r.miles ? `${fmtMi(r.miles)} mi run in ${r.moving}${paceOk(r) ? ` (${r.pace}/mi)` : ''}` : `run of ${r.moving}, no distance recorded`}${r.long_run ? ' - long run (the week’s longest)' : r.longest ? ' - longest run of the week' : ''}${r.check ? ` - check: ${r.check}` : ''}`;
 function runsHtml(info) {
   if (!info.runs.length && !info.cross.length) return '';
   const rs = info.runs;
@@ -412,7 +412,7 @@ const has = v => v !== null && v !== undefined && v !== '';
 function runReadout(w) {
   const lines = [[`${fmtMi(w.miles)} mi run`, 'tv'], [weekText(w)]];
   if (w.source === 'activities') {
-    lines.push([`From Strava activities: ${plural(w.n_runs, 'run')}${w.longest_mi ? `, longest ${fmtMi(w.longest_mi)} mi (${fmtDateShort(w.longest_date)})` : ''}`]);
+    lines.push([`From Strava activities: ${plural(w.n_runs, 'run')}${w.longest_mi ? `, ${w.long_run ? 'long run' : 'longest'} ${fmtMi(w.longest_mi)} mi (${fmtDateShort(w.longest_date)})` : ''}`]);
   } else lines.push([`From the weekly export (${w.export_file})`]);
   if (w.no_dist) lines.push([`+ ${plural(w.no_dist, 'run')} with no distance (${fmtMin(w.no_dist_min)}) - not in the miles`, 'tn']);
   if (has(w.activity_miles) && has(w.export_miles)) {
@@ -486,7 +486,7 @@ function mileageWeeks(weeks) {
   for (let i = weeks.length - 1; i >= 0; i--) {
     const w = weeks[i];
     const runs = has(w.n_runs) ? `${w.n_runs}${w.no_dist ? ` <span class="muted small">(${w.no_dist} no distance, ${esc(fmtMin(w.no_dist_min))})</span>` : ''}` : '';
-    const longest = w.longest_mi ? `${esc(fmtMi(w.longest_mi))} mi <span class="muted small">${esc(fmtDateShort(w.longest_date).split(',')[0])}</span>` : '';
+    const longest = w.longest_mi ? `${w.long_run ? '<span class="badge">long run</span> ' : ''}${esc(fmtMi(w.longest_mi))} mi <span class="muted small">${esc(fmtDateShort(w.longest_date).split(',')[0])}</span>` : '';
     const src = w.source === 'activities' ? `activities${has(w.export_miles) ? ` <span class="muted small">· export ${esc(fmtMi(w.export_miles))}</span>` : ''}`
       : `export <span class="muted small">${esc(w.export_file)}${has(w.activity_miles) ? ` · activities ${esc(fmtMi(w.activity_miles))}` : ''}</span>`;
     const note = [w.partial ? `partial${w.note ? ': ' + w.note : ''}` : w.note,

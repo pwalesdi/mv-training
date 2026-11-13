@@ -1,2 +1,3 @@
 setting,value,note
 weekly_source_when_both,activities,"confirmed by Patrick (2026-11-13): when an athlete-week has both Strava activities (data/strava) and a weekly export (data/mileage), the app shows the run miles worked out from the activities; the export's number is kept beside it. 'export' shows the export's number instead"
+long_run_min_miles,,"Patrick (2026-11-13): a long run is the longest run of the week, if it is at least this many miles. Blank until the number is set - until then no run is marked as a long run (each week's longest run is still flagged as a candidate)"

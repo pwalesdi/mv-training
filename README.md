@@ -48,8 +48,9 @@ workouts):
   the athlete is on a workout sheet, raced, or recorded a Strava run or cross-training. Chips are
   the types of their own reps; race days show meet, event and mark; 2× T means they did both
   sessions of a double day. Strava runs show distance · pace per mile (a busy day: the number of
-  runs and their total, then the biggest); **bold** is the longest run of that Monday-Sunday week
-  (a long-run candidate - no long-run rule is set yet). Clicking a day opens the day view with
+  runs and their total, then the biggest); **bold** is the longest run of that Monday-Sunday week,
+  and it reads "Long run" when it is at least `long_run_min_miles` in `rules/mileage.csv` (blank =
+  no long runs marked yet). Clicking a day opens the day view with
   their row highlighted (shown even under the varsity filter) and that day's Strava activities
   listed; prev / next there step through their days.
 - **History**: the timeline - sessions with every split, races, filters by season and type.
@@ -140,6 +141,8 @@ the export covers, so a week it only partly covers is marked partial.
 - Each athlete-week with any activity gets run miles, the number of runs, runs with no distance
   and their minutes, cross-training minutes by sport, and the week's longest run (also flagged on
   the activity, `longest_of_week`). A week with no activity has no row - it's no data, not 0.
+- Long run: the week's longest run when it is at least `long_run_min_miles` miles
+  (`rules/mileage.csv`; blank = none marked) - `long_run` on the activity and the week.
 - Where a week is also in the weekly export, both numbers are kept; a difference of more than a
   mile over the same days goes to review.csv (`mileage_sources_differ`).
 

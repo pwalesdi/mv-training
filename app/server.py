@@ -143,6 +143,7 @@ class Data:
         self.races = table("races")
         # Strava: activities, and the weekly series the Mileage tab shows (activities and / or the weekly export)
         self.acts, self.weeks = table("activities"), table("athlete_weeks")
+        self.settings = {r["setting"]: r["value"] for r in table("settings")}  # rules/mileage.csv as built
         con.close()
         # a result Athletic.net posted twice (two meet IDs for one race) is marked by the build; show it once
         self.races = [r for r in self.races if not r.get("duplicate_of")]
@@ -433,7 +434,14 @@ class Data:
         acts = sorted(self.acts_by_athlete_date.get((aid, date), []), key=lambda a: a["activity_id"]) if aid else []
         return [{"sport": a["sport"], "counts_as": a["counts_as"], "miles": a["miles"], "pace": a["pace"],
                  "moving": a["moving_time"], "moving_s": a["moving_s"], "longest": bool(a["longest_of_week"]),
-                 "check": a["check"], "fix": a["fix"], "url": a["url"]} for a in acts]
+                 "long_run": bool(a.get("long_run")), "check": a["check"], "fix": a["fix"], "url": a["url"]} for a in acts]
+
+    def long_run_rule(self):
+        """rules/mileage.csv long_run_min_miles as built: a number of miles, or None when it isn't set."""
+        try:
+            return float(self.settings.get("long_run_min_miles") or "")
+        except ValueError:
+            return None
 
     def athlete_calendar(self, key, season=None):
         """Days this athlete trained (on a workout sheet or a Strava activity) or raced in one season, for the
@@ -454,7 +462,7 @@ class Data:
             x = day(d)
             for a in self.day_activities(key, d):
                 if a["counts_as"] == "run":
-                    x["runs"].append({k: a[k] for k in ("miles", "pace", "moving", "moving_s", "longest", "check")})
+                    x["runs"].append({k: a[k] for k in ("miles", "pace", "moving", "moving_s", "longest", "long_run", "check")})
                 elif a["counts_as"] == "cross":
                     x["cross"].append({"sport": a["sport"], "min": round((a["moving_s"] or 0) / 60)})
         for a in self.ab_by_athlete.get(key, []):
@@ -478,7 +486,7 @@ class Data:
             out[d] = {"chips": merge_chips(x["chips"]), "groups": x["groups"], "practice": bool(x["groups"]),
                       "church": x["church"], "races": x["races"], "runs": x["runs"], "cross": x["cross"],
                       "double": bool(self.day_row.get(d, {}).get("double_threshold")) and {1, 2} <= nos}
-        return {"athlete": head, "season": season, "days": out}
+        return {"athlete": head, "season": season, "days": out, "long_run_min_miles": self.long_run_rule()}
 
     def athlete(self, key, season=None, cat=None):
         e = self.athletes.get(key)
@@ -529,7 +537,8 @@ class Data:
                   "export_miles": w["export_miles"], "export_file": w["export_file"], "compare_miles": w["compare_miles"],
                   "export_diff": w["export_minus_activities"], "n_runs": w["n_runs"], "no_dist": w["runs_no_distance"],
                   "no_dist_min": w["run_min_no_distance"], "cross_min": w["cross_min"], "n_cross": w["n_cross"],
-                  "cross_sports": w["cross_sports"] or "", "longest_mi": w["longest_run_mi"], "longest_date": w["longest_run_date"]}
+                  "cross_sports": w["cross_sports"] or "", "longest_mi": w["longest_run_mi"], "longest_date": w["longest_run_date"],
+                  "long_run": bool(w.get("long_run"))}
                  for w in rows]
         span = (min(w["week_start"] for w in self.weeks), max(w["week_end"] for w in self.weeks)) if self.weeks else None
         aid = head["athlete_id"]
@@ -538,7 +547,8 @@ class Data:
         both = [w for w in self.weeks if w["activity_run_miles"] is not None and w["export_miles"] is not None]
         return {"athlete": head, "weeks": weeks, "all_weeks_span": span, "n_athletes_with_mileage": len(self.weeks_by_athlete),
                 "activities": {"first": acts[0]["date"], "last": acts[-1]["date"], "n": len(acts)} if acts else None,
-                "prefer": "export" if any(w["source"] == "export" for w in both) else "activities"}
+                "prefer": "export" if any(w["source"] == "export" for w in both) else "activities",
+                "long_run_min_miles": self.long_run_rule()}
 
     def athlete_races(self, key):
         """Track: every result per event, oldest first, with PRs (faster than everything before it in that

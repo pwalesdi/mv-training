@@ -24,6 +24,9 @@ Weeks run Monday-Sunday. An athlete has a row for a week when they recorded any 
 (runs with a distance), the number of runs, runs with no distance (their minutes - they add no miles),
 cross-training minutes by sport, and the week's longest run, which is also flagged on the activity
 (longest_of_week). A week with no activity at all has no row: it shows as no data, never as 0.
+
+Long runs (rules/mileage.csv long_run_min_miles): the week's longest run is a long run (long_run) when it
+is at least that many miles. Blank: no run is a long run yet; longest_of_week still marks the candidates.
 """
 import csv
 import datetime as dt
@@ -56,6 +59,26 @@ def load_settings(rules_dir):
         return {}
     with open(p) as fh:
         return {r["setting"].strip(): r["value"].strip() for r in csv.DictReader(fh) if r["setting"].strip()}
+
+
+def setting_miles(settings, key, review):
+    """A mileage setting from rules/mileage.csv as a number, or None when blank (a non-number goes to review)."""
+    v = (settings.get(key) or "").strip()
+    if not v:
+        return None
+    x = _num(v)
+    if x is None or x < 0:
+        review.append(_item(f"rules/mileage.csv: {key} '{v}' isn't a number of miles - ignored", "rule_unused"))
+    return x if x is not None and x >= 0 else None
+
+
+def mark_long_runs(acts, weeks, min_miles):
+    """Long run = the week's longest run, if it is at least min_miles (rules/mileage.csv long_run_min_miles).
+    min_miles None: nothing is marked."""
+    for a in acts:
+        a["long_run"] = int(bool(a["longest_of_week"]) and min_miles is not None and (a["miles"] or 0) >= min_miles)
+    for w in weeks:
+        w["long_run"] = int(min_miles is not None and (w["longest_run_mi"] or 0) >= min_miles)
 
 
 def load_fixes(path):
@@ -326,7 +349,8 @@ def combine(weeks, export_rows, acts, windows, prefer="activities"):
             "activity_run_miles": w["run_miles"] if w else None, "export_miles": float(m["miles"]) if m else None,
             "export_file": m["source_file"] if m else "", "compare_miles": compare, "export_minus_activities": diff,
             **{c: (w[c] if w else None) for c in ("n_runs", "runs_no_distance", "run_min_no_distance", "cross_min", "n_cross",
-                                                    "cross_sports", "longest_run_mi", "longest_run_date", "longest_run_id")},
+                                                    "cross_sports", "longest_run_mi", "longest_run_date", "longest_run_id",
+                                                    "long_run")},
         })
         if diff is not None and abs(diff) > 1:
             span = "the whole week" if days == (dt.date.fromisoformat(key[1]), dt.date.fromisoformat(m["week_end"])) \
