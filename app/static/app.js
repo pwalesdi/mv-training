@@ -1,7 +1,7 @@
 'use strict';
 /* MV Training prototype - plain JS. Routes:
    #/calendar[/<season>][?m=YYYY-MM]   #/day/<date>[?a=<athlete key to highlight>]
-   #/athletes                          #/athletes/<key>[?tab=calendar|history|mileage&season=&m=&cat=]
+   #/athletes                          #/athletes/<key>[?tab=calendar|history|mileage|races&season=&m=&cat=]
    #/workouts[/<combo>]     */
 
 const main = document.getElementById('main');
@@ -286,7 +286,7 @@ async function viewAthletes(q) {
   document.getElementById('season').addEventListener('change', e => { location.hash = `#/athletes${e.target.value ? `?season=${e.target.value}` : ''}`; });
   draw();
 }
-const ATHLETE_TABS = [['calendar', 'Calendar'], ['history', 'History'], ['mileage', 'Mileage']];
+const ATHLETE_TABS = [['calendar', 'Calendar'], ['history', 'History'], ['mileage', 'Mileage'], ['races', 'Races']];
 function athleteUrl(key, params) {
   const p = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) if (v && !(k === 'tab' && v === 'calendar')) p.set(k, v);
@@ -303,6 +303,7 @@ async function viewAthlete(key, q) {
   const tab = q.get('tab') || 'calendar';
   if (tab === 'history') return athleteHistory(key, q);
   if (tab === 'mileage') return athleteMileage(key, q);
+  if (tab === 'races') return athleteRaces(key, q);
   return athleteCalendar(key, q);
 }
 async function athleteCalendar(key, q) {
@@ -423,6 +424,86 @@ function mileageWeeks(weeks) {
   }
   return `<details class="weeks"><summary>Every week (${weeks.length}) - newest first</summary><table class="list"><thead><tr><th>Week (Mon–Sun)</th><th class="num">Miles</th><th>Note</th><th>File</th></tr></thead><tbody>${out.join('')}</tbody></table></details>`;
 }
+/* ---------- athlete races ---------- */
+const longDate = iso => `${fmtDateShort(iso)}, ${iso.slice(0, 4)}`;
+const secsText = v => `${fmtTime(v)}${Math.abs(v) < 60 ? ' s' : ''}`;
+function deltaText(d) {
+  if (d === null || d === undefined) return '';
+  if (Math.abs(d) < 0.05) return 'same time';
+  return d < 0 ? `${secsText(-d)} faster` : `${secsText(d)} slower`;
+}
+async function athleteRaces(key, q) {
+  const res = await api(`/api/athlete/races?key=${enc(key)}`);
+  const a = res.athlete, cov = res.coverage || {};
+  const covText = Object.entries(cov).map(([k, [f, l]]) => `${k === 'TF' ? 'track' : 'cross country'} ${longDate(f)} – ${longDate(l)}`).join('; ');
+  let html = athleteHead(a, key, 'races', q.get('season') || '');
+  html += `<p class="muted small">Race times as Athletic.net has them - nothing here converts between events or courses. The exports cover ${esc(covText)}.</p>`;
+  html += '<h2>Track</h2>' + trackSection(res.track) + '<h2>Cross country</h2>' + xcSection(res);
+  main.innerHTML = html;
+  Charts.wire(main);
+  window.scrollTo(0, 0);
+}
+function trackSection(track) {
+  if (!track.length) return '<p class="muted">No track results.</p>';
+  const timed = track.flatMap(e => e.results.filter(r => r.seconds));
+  if (!timed.length) return `<p class="muted">No timed track results (${track.reduce((n, e) => n + e.results.length, 0)} listed without a mark).</p>${trackTable(track)}`;
+  const ts = timed.map(r => Charts.ms(r.date)), DAY = Charts.DAY;
+  let t0 = Math.min(...ts), t1 = Math.max(...ts);
+  const padT = Math.max(20 * DAY, (t1 - t0) * 0.03);
+  t0 -= padT; t1 += padT;
+  let html = `<p class="muted small">One panel per event on the same time axis; faster is higher. The line breaks between seasons and across gaps of more than three months.</p>
+    <div class="chartkey"><span><i class="k-dot pr"></i>PR when it was run (faster than every earlier race in that event)</span><span><i class="k-dot"></i>other race</span><span><b>PR 4:30.0</b> lifetime PR</span></div>`;
+  for (const e of track) {
+    const pts = e.results.filter(r => r.seconds).map(r => ({
+      t: Charts.ms(r.date), seconds: r.seconds, season: r.season,
+      cls: r.best ? 'pr best' : r.pr ? 'pr' : '', label: r.best ? `PR ${r.mark}` : '',
+      lines: [[r.mark, 'tv'], [`${e.event} · ${Charts.wmd(Charts.ms(r.date))}, ${r.date.slice(0, 4)}`], [r.meet],
+        [[r.race, r.place ? `place ${r.place}` : ''].filter(Boolean).join(' · ')],
+        ...(r.best ? [['Lifetime PR', 'tn']] : r.pr ? [['PR at the time', 'tn']] : []),
+        ...(r.also ? [['also in the XC export', 'tn']] : [])].filter(l => l[0]),
+    }));
+    const n = e.results.length, untimed = n - pts.length;
+    html += `<div class="chart track" data-event="${esc(e.event)}"><h3>${esc(e.event)} <span class="muted small">${n} race${n === 1 ? '' : 's'}${untimed ? ` (${untimed} without a time)` : ''}${e.best ? ` · PR ${esc(e.best.mark)}, ${esc(longDate(e.best.date))}, ${esc(e.best.meet)}` : ''}</span></h3>
+      ${pts.length ? Charts.progression(pts, { t0, t1, width: chartWidth(), event: e.event }) : '<p class="muted small">No timed results.</p>'}</div>`;
+  }
+  return html + trackTable(track);
+}
+function trackTable(track) {
+  const rows = track.flatMap(e => e.results.map(r => `<tr data-event="${esc(e.event)}" data-secs="${r.seconds ?? ''}"><td>${esc(e.event)}</td><td class="nowrap">${esc(longDate(r.date))}</td><td>${esc(r.meet)}</td><td>${esc(r.race)}</td><td class="num mono">${esc(r.mark)}</td><td class="num">${esc(r.place)}</td><td>${r.best ? '<b>lifetime PR</b>' : r.pr ? 'PR' : ''}${r.also ? ' <span class="muted small">also in XC export</span>' : ''}</td></tr>`)).join('');
+  const n = track.reduce((t, e) => t + e.results.length, 0);
+  return `<details class="weeks"><summary>All track results (${n}) - by event, oldest first</summary><table class="list"><thead><tr><th>Event</th><th>Date</th><th>Meet</th><th>Race</th><th class="num">Mark</th><th class="num">Place</th><th>PR</th></tr></thead><tbody>${rows}</tbody></table></details>`;
+}
+function xcSection(res) {
+  let html = '<h3 class="sub">Same course, different years</h3><p class="muted small">Grouped by meet <b>and</b> distance: when a meet changed its distance (Lowell / SF Invitational) the years aren’t compared. Faster is higher.</p>';
+  if (!res.courses.length) html += `<p class="muted">${res.xc.length ? 'No course run more than once.' : 'No cross-country results.'}</p>`;
+  else html += `<div class="courses">${res.courses.map(courseCard).join('')}</div>`;
+  if (!res.xc.length) return html;
+  const rows = res.xc.map(r => `<tr data-secs="${r.seconds ?? ''}"><td class="nowrap">${esc(longDate(r.date))}</td><td>${esc(r.meet)}</td><td class="nowrap">${esc(r.event)}</td><td>${esc(r.race)}</td><td class="num mono">${esc(r.mark)}</td><td class="num">${esc(r.place)}</td><td>${r.varsity_race ? '<span class="badge v">varsity race</span> ' : ''}${r.course ? `<a class="small" href="#" data-course="${esc(r.course)}">same course ↑</a> ` : ''}${r.also ? '<span class="muted small">also in track export</span>' : ''}</td></tr>`).join('');
+  return html + `<h3 class="sub">Every cross-country race (${res.xc.length}) - newest first</h3><table class="list xc"><thead><tr><th>Date</th><th>Meet</th><th>Distance</th><th>Race</th><th class="num">Time</th><th class="num">Place</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+function courseCard(c) {
+  const years = c.results.map(r => r.date.slice(0, 4)), dupYear = new Set(years).size < years.length;
+  const pts = c.results.filter(r => r.seconds).map(r => ({
+    t: Charts.ms(r.date), seconds: r.seconds, cls: 'solid', label: '',
+    xlabel: dupYear ? `${MONTHS[+r.date.slice(5, 7) - 1].slice(0, 3)} ’${r.date.slice(2, 4)}` : r.date.slice(0, 4),
+    lines: [[r.mark, 'tv'], [`${Charts.wmd(Charts.ms(r.date))}, ${r.date.slice(0, 4)}`], [[r.race, r.place ? `place ${r.place}` : ''].filter(Boolean).join(' · ')],
+      ...(r.delta !== null ? [[`${deltaText(r.delta)} than the time before on this course`, 'tn']] : [])].filter(l => l[0]),
+  }));
+  const rows = c.results.map(r => `<tr data-secs="${r.seconds ?? ''}"><td>${esc(r.date.slice(0, 4))}</td><td class="nowrap">${esc(fmtDateShort(r.date))}</td><td>${esc(r.race)}</td><td class="num mono">${esc(r.mark)}</td><td class="num">${esc(r.place)}</td><td class="num nowrap">${esc(deltaText(r.delta))}</td></tr>`).join('');
+  // the card's own width in the .courses grid (auto-fill, min 460px, 12px gap), so the chart isn't stretched
+  const avail = (main.clientWidth || 960) - 40, cols = Math.max(1, Math.floor((avail + 12) / 472));
+  const w = Math.floor((avail - 12 * (cols - 1)) / cols) - 26;
+  return `<div class="chart course" data-course="${esc(c.key)}"><h3>${esc(c.meet)} <span class="muted">· ${esc(c.event)}</span></h3>
+    ${pts.length > 1 ? Charts.course(pts, w) : ''}
+    <table class="list compact"><thead><tr><th>Year</th><th>Date</th><th>Race</th><th class="num">Time</th><th class="num">Place</th><th class="num">vs time before</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+document.addEventListener('click', e => {  // "same course" links in the XC list scroll to that course's card
+  const a = e.target.closest && e.target.closest('a[data-course]');
+  if (!a) return;
+  e.preventDefault();
+  const card = [...document.querySelectorAll('.chart.course')].find(c => c.dataset.course === a.dataset.course);
+  if (card) { card.scrollIntoView({ block: 'center' }); card.classList.add('flash'); setTimeout(() => card.classList.remove('flash'), 1200); }
+});
 function comboOptions() {  // built by the server, counts are distinct groups
   return WTYPES.map(w => ({ combo: w.combo, label: w.label, n: w.blocks }));
 }

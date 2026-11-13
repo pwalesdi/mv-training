@@ -124,7 +124,7 @@ def build(seasons=None, out_dir=None, mileage_dir=None):
     types = classify.load_types()
     aliases = load_aliases()
     ath_notes = load_athlete_notes()
-    race_rows, id_names, by_name = races.load(DATA / "races")
+    race_rows, id_names, by_name = races.load(DATA / "races", RULES)
     fitness = races.Fitness(race_rows)
     cutoffs = races.load_inference(RULES)
     overrides = load_overrides()

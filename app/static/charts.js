@@ -159,6 +159,128 @@ const Charts = (() => {
     });
   }
 
+  /* ---- race times: faster is higher on the axis ---- */
+  const clock = v => {  // seconds -> m:ss(.s) for axis ticks
+    const m = Math.floor(v / 60), sec = v - m * 60, r = Math.round(sec * 10) / 10;
+    const ss = (r % 1 ? r.toFixed(1) : String(r)).padStart(r % 1 ? 4 : 2, '0');
+    return m ? `${m}:${ss}` : `${r}`;
+  };
+  function timeStep(span, n) {
+    return [0.5, 1, 2, 5, 10, 15, 20, 30, 60, 120, 300, 600].find(s => span / s <= n) || 600;
+  }
+  function yTime(secs, T, plotH, n = 4) {
+    let lo = Math.min(...secs), hi = Math.max(...secs);
+    const pad = Math.max(0.5, (hi - lo) * 0.12);
+    lo -= pad; hi += pad;
+    const step = timeStep(hi - lo, n), a = Math.floor(lo / step) * step, b = Math.ceil(hi / step) * step;
+    const y = v => T + plotH * (v - a) / (b - a);  // smaller time (faster) nearer the top
+    const ticks = [];
+    for (let v = a; v <= b + 1e-9; v += step) ticks.push(v);
+    return { y, ticks };
+  }
+  // pts: [{t (ms), seconds, lines (tooltip rows), cls, label?}] - sorted by time; breaks: start a new line segment
+  function pointsChart(kind, pts, W, H, L, R, T, B, x, yt, xAxis, aria, breakAt) {
+    const id = `ch${nextId++}`;
+    let s = '';
+    for (const v of yt.ticks) {
+      s += `<line class="gl" x1="${L}" x2="${W - R}" y1="${x1(yt.y(v))}" y2="${x1(yt.y(v))}"/>`
+        + `<text class="ax" x="${L - 6}" y="${x1(yt.y(v) + 4)}" text-anchor="end">${clock(v)}</text>`;
+    }
+    s += xAxis;
+    const xy = pts.map(p => [x(p), yt.y(p.seconds)]);
+    let d = '';
+    pts.forEach((p, i) => { d += `${i === 0 || breakAt(pts[i - 1], p) ? 'M' : 'L'}${x1(xy[i][0])},${x1(xy[i][1])}`; });
+    s += `<path class="pline" d="${d}"/>`;
+    pts.forEach((p, i) => {
+      s += `<circle class="pt ${p.cls || ''}" data-i="${i}" data-secs="${p.seconds}" cx="${x1(xy[i][0])}" cy="${x1(xy[i][1])}" r="4.5"/>`;
+    });
+    const best = pts.findIndex(p => p.label);
+    if (best >= 0) {
+      const [bx, by] = xy[best], right = bx > W - R - 90;
+      s += `<text class="plbl" x="${x1(bx + (right ? -9 : 9))}" y="${x1(Math.max(T + 10, by - 8))}" text-anchor="${right ? 'end' : 'start'}">${esc(pts[best].label)}</text>`;
+    }
+    s += `<line class="xhair" x1="0" x2="0" y1="${T}" y2="${H - B}" visibility="hidden"/><circle class="ring" r="8" visibility="hidden"/>`
+      + `<rect class="hit" x="${L}" y="${T - 6}" width="${W - L - R}" height="${H - T - B + 12}"/>`;
+    registry.set(id, { kind: 'points', pts, xy, L, R, W });
+    return `<svg data-chart="${id}" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" tabindex="0" role="img" aria-label="${esc(aria)}">${s}</svg>`;
+  }
+  function yearTicks(t0, t1, x, H, B, ppd) {
+    const span = (t1 - t0) / DAY;
+    let s = '';
+    if (span > 420) {
+      const first = Date.UTC(year(t0) + 1, 0, 1);
+      if (x(first) - x(t0) > 46) s += `<text class="ax" x="${x1(x(t0) + 2)}" y="${H - 8}" text-anchor="start">${year(t0 + 30 * DAY)}</text>`;
+      for (let y = year(t0) + 1; Date.UTC(y, 0, 1) <= t1; y++) {
+        const t = Date.UTC(y, 0, 1);
+        s += `<line class="tick" x1="${x1(x(t))}" x2="${x1(x(t))}" y1="${H - B}" y2="${H - B + 4}"/><text class="ax" x="${x1(x(t))}" y="${H - 8}" text-anchor="middle">${y}</text>`;
+      }
+      return s;
+    }
+    const { ticks, k } = monthTicks(t0, t1, ppd);
+    ticks.forEach((t, i) => { s += `<line class="tick" x1="${x1(x(t))}" x2="${x1(x(t))}" y1="${H - B}" y2="${H - B + 4}"/><text class="ax" x="${x1(x(t))}" y="${H - 8}" text-anchor="middle">${tickLabel(t, i, k)}</text>`; });
+    return s;
+  }
+  // one track event over time; o: {t0, t1, width, event}. The line breaks between seasons.
+  function progression(pts, o) {
+    const W = Math.max(360, o.width), H = 180, L = 50, R = 16, T = 18, B = 26;
+    const ppd = (W - L - R) / ((o.t1 - o.t0) / DAY);
+    const x = p => L + (p.t - o.t0) / DAY * ppd;
+    const yt = yTime(pts.map(p => p.seconds), T, H - T - B);
+    const axis = yearTicks(o.t0, o.t1, t => L + (t - o.t0) / DAY * ppd, H, B, ppd) + `<line class="base" x1="${L}" x2="${W - R}" y1="${H - B}" y2="${H - B}"/>`;
+    return pointsChart('progression', pts, W, H, L, R, T, B, x, yt, axis,
+      `${o.event}: ${pts.length} timed races; the table below lists every one`,
+      (a, b) => a.season !== b.season || b.t - a.t > 90 * DAY);
+  }
+  // one XC course, its races side by side in date order (usually one a year)
+  function course(pts, width) {
+    const W = Math.max(260, width), H = 140, L = 50, R = 24, T = 16, B = 24;
+    const n = pts.length, gap = n > 1 ? (W - L - R - 40) / (n - 1) : 0;
+    const x = p => L + 20 + pts.indexOf(p) * gap;
+    const yt = yTime(pts.map(p => p.seconds), T, H - T - B, 3);
+    let axis = `<line class="base" x1="${L}" x2="${W - R}" y1="${H - B}" y2="${H - B}"/>`;
+    pts.forEach(p => { axis += `<text class="ax" x="${x1(x(p))}" y="${H - 8}" text-anchor="middle">${esc(p.xlabel)}</text>`; });
+    return pointsChart('course', pts, W, H, L, R, T, B, x, yt, axis, `${n} races on this course; the table lists each`, () => false);
+  }
+
+  function wirePoints(svg, c) {
+    const hair = svg.querySelector('.xhair'), ring = svg.querySelector('.ring');
+    let cur = -1;
+    const mark = i => {
+      const [px, py] = c.xy[i];
+      hair.setAttribute('x1', x1(px)); hair.setAttribute('x2', x1(px)); hair.setAttribute('visibility', 'visible');
+      ring.setAttribute('cx', x1(px)); ring.setAttribute('cy', x1(py)); ring.setAttribute('visibility', 'visible');
+      return [px, py];
+    };
+    const clear = () => { hair.setAttribute('visibility', 'hidden'); ring.setAttribute('visibility', 'hidden'); tipHide(); };
+    const nearest = (px, py) => {  // nearest by x; ties (same day) by y
+      let bi = -1, bd = Infinity;
+      c.xy.forEach(([x, y], i) => { const d = Math.abs(x - px) * 4 + Math.abs(y - py); if (d < bd) { bd = d; bi = i; } });
+      return bi;
+    };
+    svg.addEventListener('pointermove', e => {
+      const box = svg.getBoundingClientRect(), sc = svg.viewBox.baseVal.width / box.width;
+      const px = (e.clientX - box.left) * sc, py = (e.clientY - box.top) * sc;
+      if (px < c.L - 4 || px > c.W - c.R + 4) { clear(); return; }
+      cur = nearest(px, py);
+      if (cur < 0) return;
+      mark(cur);
+      tipShow(c.pts[cur].lines, e.clientX, e.clientY);
+    });
+    svg.addEventListener('pointerleave', clear);
+    const showKey = () => {
+      const [px, py] = mark(cur), box = svg.getBoundingClientRect(), sc = box.width / svg.viewBox.baseVal.width;
+      tipShow(c.pts[cur].lines, box.left + px * sc, box.top + py * sc);
+    };
+    svg.addEventListener('focus', () => { cur = c.pts.length - 1; showKey(); });
+    svg.addEventListener('blur', clear);
+    svg.addEventListener('keydown', e => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      e.preventDefault();
+      cur = Math.max(0, Math.min(c.pts.length - 1, cur + (e.key === 'ArrowRight' ? 1 : -1)));
+      showKey();
+    });
+  }
+
   // attach hover / keyboard handlers to every chart rendered inside root
   function wire(root) {
     for (const svg of root.querySelectorAll('svg[data-chart]')) {
@@ -166,9 +288,10 @@ const Charts = (() => {
       if (!c || svg.dataset.wired) continue;
       svg.dataset.wired = '1';
       if (c.kind === 'mileage') wireMileage(svg, c);
+      else if (c.kind === 'points') wirePoints(svg, c);
     }
   }
   function reset() { registry.clear(); tipHide(); }
 
-  return { mileage, wire, reset, seasonName, ms, DAY };
+  return { mileage, progression, course, wire, reset, seasonName, ms, DAY, wmd, year };
 })();

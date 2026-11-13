@@ -1,5 +1,12 @@
 """Athletic.net race results and a simple fitness reference.
 
+Each XC result also gets xc_meet (the meet's name across years: no year, edition number or
+"(AKA ...)"; rules/xc_meets.csv merges names that changed otherwise) and xc_course (xc_meet +
+distance - only results with the same xc_course are the same course; a meet that changed its
+distance between years is a different course). duplicate_of marks a result Athletic.net posted
+twice under two meet IDs (same athlete, kind, day, distance and time within 0.1 s): it holds the
+meet ID of the copy that is kept (the one with more decimals).
+
 The fitness reference is each athlete's best 1600 m *equivalent* (Riegel,
 exponent 1.06) from races in the 365 days before a date. Unlabeled blocks get
 a likely workout type from the target pace expressed as a % of that mile
@@ -29,7 +36,70 @@ def _distance_m(s):
     return None
 
 
-def load(race_dir):
+def load_meet_rules(rules_dir):
+    """rules/xc_meets.csv: contains,meet,note - a meet name containing `contains` (any case) is `meet`."""
+    p = Path(rules_dir) / "xc_meets.csv" if rules_dir else None
+    if not p or not p.exists():
+        return []
+    with open(p) as fh:
+        return [r for r in csv.DictReader(fh) if (r.get("contains") or "").strip()]
+
+
+AKA = re.compile(r"\s*\(\s*a\.?k\.?a\.?\b[^)]*\)", re.I)
+YEAR = re.compile(r"^\s*(?:19|20)\d{2}\s+")
+EDITION = re.compile(r"^\s*\d+(?:st|nd|rd|th)\s+(?:annual\s+)?", re.I)
+
+
+def xc_meet(name, rules=()):
+    """'2024 CIF State Cross Country Championships' -> 'CIF State Cross Country Championships',
+    '43rd Annual Woodbridge Cross Country Classic' -> 'Woodbridge Cross Country Classic',
+    'Lowell Invitational (AKA San Francisco Invitational)' -> 'Lowell Invitational'."""
+    low = name.lower()
+    for r in rules:
+        if r["contains"].strip().lower() in low:
+            return r["meet"].strip()
+    return EDITION.sub("", YEAR.sub("", AKA.sub("", name))).strip()
+
+
+def meet_key(name):
+    k = re.sub(r"[^a-z0-9]+", " ", name.lower()).strip()
+    return re.sub(r"\bchampionships\b", "championship", k)
+
+
+def _courses(results, rules):
+    for r in results:
+        r["xc_meet"] = xc_meet(r["meet_name"], rules) if r["kind"] == "XC" else ""
+    newest = {}
+    for r in sorted((r for r in results if r["xc_meet"]), key=lambda r: r["date"]):
+        newest[meet_key(r["xc_meet"])] = r["xc_meet"]  # the newest spelling names the meet
+    for r in results:
+        if r["xc_meet"]:
+            r["xc_meet"] = newest[meet_key(r["xc_meet"])]
+        r["xc_course"] = f"{meet_key(r['xc_meet'])}|{round(r['distance_m'])}" if r["xc_meet"] and r["distance_m"] else ""
+
+
+def _decimals(mark):
+    m = re.search(r"\.(\d+)\s*$", mark or "")
+    return len(m.group(1)) if m else 0
+
+
+def _mark_duplicates(results):
+    groups = defaultdict(list)
+    for r in results:
+        r["duplicate_of"] = ""
+        if r["seconds"] and r["distance_m"]:
+            groups[(r["kind"], r["athlete_id"], r["date"], round(r["distance_m"]))].append(r)
+    for rows in groups.values():
+        kept = []
+        for r in sorted(rows, key=lambda r: (-_decimals(r["mark"]), r["meet_id"])):
+            twin = next((k for k in kept if k["meet_id"] != r["meet_id"] and abs(k["seconds"] - r["seconds"]) <= 0.1), None)
+            if twin:
+                r["duplicate_of"] = twin["meet_id"]
+            else:
+                kept.append(r)
+
+
+def load(race_dir, rules_dir=None):
     """-> (results list, {athlete_id: name}, {normalised name: athlete_id})."""
     results, names = [], {}
     for f in sorted(Path(race_dir).glob("*.csv")):
@@ -66,6 +136,8 @@ def load(race_dir):
                     "season_year": r["season_year"],
                     "source_url": r["source_url"],
                 })
+    _courses(results, load_meet_rules(rules_dir))
+    _mark_duplicates(results)
     by_name = {norm(n): aid for aid, n in names.items()}
     return results, names, by_name
 

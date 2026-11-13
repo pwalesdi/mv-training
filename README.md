@@ -53,6 +53,12 @@ workouts):
   Season starts (1 July) are marked, partial weeks are lighter, and weeks with no data are
   shaded and left empty - never filled from workbook volume. Hover (or focus the chart and use
   the arrow keys) for each week; per-season totals and every week are in tables below.
+- **Races**: track - one panel per event (800 / 1600 / 3200) on a shared time axis, faster
+  higher, dots filled where the race was a PR when it was run, the lifetime PR labelled, hover for
+  meet / mark / place. Cross country - every course the athlete ran more than once (same meet
+  *and* distance, so a meet that changed its distance isn't compared across years), with a small
+  chart and each year's time, and every XC race as a plain list. Times only: nothing converts
+  between events or courses (no mile equivalents).
 
 `python -m app --db other/training.sqlite --port 5051` runs it on another build (e.g. a test).
 
@@ -107,7 +113,7 @@ To try a folder of exports without touching `data/mileage/`:
 | `prescriptions` | label line ("Threshold Intervals: 5 x Lap @ 20k RP"): type, anchor, band |
 | `athlete_blocks` | athlete in a block: Athletic.net ID, cooldown, total volume, notes |
 | `reps` | athlete x rep: distance, target, actual, status, type/band, shared-split flag |
-| `races` | Athletic.net result |
+| `races` | Athletic.net result. XC results also carry `xc_meet` (the meet across years) and `xc_course` (meet + distance: the same course); `duplicate_of` marks a result Athletic.net posted twice |
 | `weekly_mileage` | athlete x week (Strava): miles, partial-week flag |
 | `review` | anything the parser couldn't settle - read this after each run |
 

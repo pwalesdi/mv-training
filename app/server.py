@@ -119,6 +119,16 @@ def session_rank(n):
     return n if isinstance(n, int) else 99
 
 
+def round_order(race_name):
+    """Prelims before finals on the same day ('Varsity - P', 'Varsity - F')."""
+    n = (race_name or "").lower()
+    if re.search(r"(?:^|\W)p$|prelim|heat", n):
+        return 0
+    if re.search(r"(?:^|\W)f$|final", n):
+        return 2
+    return 1
+
+
 class Data:
     def __init__(self, path):
         con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
@@ -172,6 +182,9 @@ class Data:
         for lst in self.races_by_athlete.values():
             lst.sort(key=lambda r: (r["date"], r["kind"], r["event"]))
 
+        self.race_coverage = {k: [min(r["date"] for r in self.races if r["kind"] == k),
+                                  max(r["date"] for r in self.races if r["kind"] == k)]
+                              for k in sorted({r["kind"] for r in self.races})}
         self.seasons = sorted({s["season"] for s in self.sheets})
         self.varsity = defaultdict(set)
         self.raced = defaultdict(set)
@@ -485,6 +498,58 @@ class Data:
         span = (min(m["week_start"] for m in self.mileage), max(m["week_end"] for m in self.mileage)) if self.mileage else None
         return {"athlete": head, "weeks": weeks, "all_weeks_span": span, "n_athletes_with_mileage": len(self.mileage_by_athlete)}
 
+    def athlete_races(self, key):
+        """Track: every result per event, oldest first, with PRs (faster than everything before it in that
+        event; 'best' = the lifetime PR). XC: courses (same meet AND distance, see mvtrain/races.py) run
+        more than once, and every XC race. Times only - nothing is converted between events or courses."""
+        if key not in self.athletes:
+            return None
+        rows = self.races_by_athlete.get(key, [])
+        tf, xc = [r for r in rows if r["kind"] == "TF"], [r for r in rows if r["kind"] == "XC"]
+
+        def base(r):
+            return {"date": r["date"], "season": season_of(r["date"]), "meet": r["meet_name"], "event": r["event"],
+                    "race": r["race_name"], "mark": r["mark"], "seconds": r["seconds"], "place": r["place"],
+                    "grade": r["grade"], "url": r["source_url"]}
+        events = defaultdict(list)
+        for r in tf:
+            events[(round(r["distance_m"] or 0), r["event"])].append(r)
+        track = []
+        for (dist, ev), lst in sorted(events.items()):
+            lst.sort(key=lambda r: (r["date"], round_order(r["race_name"])))
+            best, out = None, []
+            for r in lst:
+                pr = bool(r["seconds"]) and (best is None or r["seconds"] < best)
+                best = r["seconds"] if pr else best
+                out.append({**base(r), "pr": pr, "also": "XC" if any(same_result(r, o) for o in xc) else ""})
+            timed = [x for x in out if x["seconds"]]
+            pb = min(timed, key=lambda x: x["seconds"]) if timed else None
+            for x in out:
+                x["best"] = x is pb
+            track.append({"event": ev, "distance_m": dist, "results": out, "best": pb})
+        courses = defaultdict(list)
+        for r in xc:
+            if r.get("xc_course"):
+                courses[r["xc_course"]].append(r)
+        repeated = []
+        for k, lst in courses.items():
+            if len(lst) < 2:
+                continue
+            lst.sort(key=lambda r: r["date"])
+            prev, out = None, []
+            for r in lst:
+                delta = round(r["seconds"] - prev["seconds"], 2) if prev and r["seconds"] else None
+                out.append({**base(r), "delta": delta, "varsity_race": is_xc_varsity(r)})
+                prev = r if r["seconds"] else prev
+            repeated.append({"key": k, "meet": lst[-1]["xc_meet"], "event": lst[-1]["event"], "results": out})
+        repeated.sort(key=lambda c: c["results"][-1]["date"], reverse=True)
+        keys = {c["key"] for c in repeated}
+        xc_list = sorted(({**base(r), "xc_meet": r.get("xc_meet", ""), "course": r.get("xc_course", "") if r.get("xc_course") in keys else "",
+                           "varsity_race": is_xc_varsity(r), "also": "TF" if any(same_result(r, o) for o in tf) else ""}
+                          for r in xc), key=lambda x: x["date"], reverse=True)
+        return {"athlete": self.head(key), "track": track, "courses": repeated, "xc": xc_list,
+                "coverage": self.race_coverage}
+
     def workout_combos(self):
         """Picker entries with the number of distinct groups (blocks), all athletes:
         each category; for threshold also each band (any session) and each exact band/session."""
@@ -650,6 +715,13 @@ def create_app(db_path=DB):
     @app.get("/api/athlete/mileage")
     def api_athlete_mileage():
         res = data().athlete_mileage(request.args.get("key", ""))
+        if res is None:
+            abort(404)
+        return jsonify(res)
+
+    @app.get("/api/athlete/races")
+    def api_athlete_races():
+        res = data().athlete_races(request.args.get("key", ""))
         if res is None:
             abort(404)
         return jsonify(res)

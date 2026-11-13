@@ -199,6 +199,20 @@ h3.sub { margin: 18px 0 6px; }
 tr.gaprow td { color: var(--muted); background: var(--gap); }
 details.weeks { margin: 14px 0; }
 details.weeks table { margin-top: 6px; }
+.chart .pline { fill: none; stroke: var(--c-threshold); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart .pt { fill: var(--surface); stroke: var(--c-threshold); stroke-width: 2; }
+.chart .pt.pr { fill: var(--c-threshold); stroke: var(--surface); }
+.chart .pt.best, .chart .pt.solid { fill: var(--c-threshold); stroke: var(--surface); }
+.chartkey .k-dot { width: 10px; height: 10px; border-radius: 50%; box-shadow: inset 0 0 0 2px var(--c-threshold); background: var(--surface); }
+.chartkey .k-dot.pr { background: var(--c-threshold); }
+.chart .ring { fill: none; stroke: var(--ink); stroke-width: 1.5; pointer-events: none; }
+.chart .plbl { fill: var(--ink); font-size: 11px; font-weight: 600; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; }
+.chart.track h3 .small { font-weight: 400; margin-left: 6px; }
+.courses { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 460px), 1fr)); gap: 12px; }
+.courses .chart { margin: 0; }
+.chart.course.flash { box-shadow: 0 0 0 2px var(--hl-edge); }
+table.list.compact { font-size: 12.5px; margin-top: 6px; }
+table.list.compact th, table.list.compact td { padding: 3px 8px; }
 .tip .tv { font-weight: 600; font-size: 13px; }
 .tip .tn { opacity: .85; }
 .tip {
