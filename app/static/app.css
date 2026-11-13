@@ -8,6 +8,7 @@
   --c-threshold: #2a78d6; --c-lactate_resistance: #eb6834; --c-aerobic_power: #1baf7a;
   --c-lactic_capacity: #eda100; --c-speed_endurance: #e87ba4; --c-easy_aerobic: #008300;
   --c-hills: #6250d6; --c-other: #898781;
+  --c-cross: #8a6a43;  /* cross-training hours: not a workout category, so its own hue */
 }
 @media (prefers-color-scheme: dark) {
   :root:where(:not([data-theme="light"])) {
@@ -18,6 +19,7 @@
     --c-threshold: #3987e5; --c-lactate_resistance: #d95926; --c-aerobic_power: #199e70;
     --c-lactic_capacity: #c98500; --c-speed_endurance: #d55181; --c-easy_aerobic: #008300;
     --c-hills: #9085e9; --c-other: #898781;
+    --c-cross: #b0905f;
   }
 }
 
@@ -180,8 +182,10 @@ details.names { font-size: 12px; } details.names summary { font-size: 12px; }
 .chart .base, .chart .tick { stroke: var(--line-2); }
 .chart text.ax { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .chart .mbar { fill: var(--c-threshold); }
-.chart .mbar.partial { fill-opacity: .35; }
-.chart .mbar.on { stroke: var(--ink); stroke-width: 1.5; }
+.chart .cbar { fill: var(--c-cross); }
+.chart .wbar.partial { fill-opacity: .35; }
+.chart .wbar.on { stroke: var(--ink); stroke-width: 1.5; }
+.chart .nd { fill: var(--surface); stroke: var(--ink-2); stroke-width: 1.5; pointer-events: none; }
 .chart .gap { fill: var(--gap); }
 .chart .gaplbl { fill: var(--muted); font-size: 11px; }
 .chart .season { stroke: var(--muted); }
@@ -192,6 +196,8 @@ details.names { font-size: 12px; } details.names summary { font-size: 12px; }
 .chartkey i { display: inline-block; width: 12px; height: 10px; margin-right: 5px; vertical-align: -1px; border-radius: 2px; }
 .chartkey .k-bar { background: var(--c-threshold); }
 .chartkey .k-bar.partial { opacity: .35; }
+.chartkey .k-bar.cross { background: var(--c-cross); }
+.chartkey .k-nd { width: 9px; height: 9px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--ink-2); background: var(--surface); }
 .chartkey .k-gap { background: var(--gap); box-shadow: inset 0 0 0 1px var(--line); }
 .chartkey .k-season { width: 0; height: 13px; border-left: 1px solid var(--muted); border-radius: 0; margin-right: 6px; vertical-align: -2px; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }

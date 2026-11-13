@@ -50,10 +50,15 @@ workouts):
   opens the day view with their row highlighted (shown even under the varsity filter), and
   prev / next there step through their days.
 - **History**: the timeline - sessions with every split, races, filters by season and type.
-- **Mileage**: Strava weekly miles (Monday-Sunday) across every season in `data/mileage/`.
-  Season starts (1 July) are marked, partial weeks are lighter, and weeks with no data are
-  shaded and left empty - never filled from workbook volume. Hover (or focus the chart and use
-  the arrow keys) for each week; per-season totals and every week are in tables below.
+- **Mileage**: weekly run miles (Monday-Sunday) across every season - from the athlete's Strava
+  activities (`data/strava/`), or the weekly export (`data/mileage/`) for weeks without them;
+  `rules/mileage.csv` picks when a week is in both, and the other number is kept in the hover and
+  the table. Runs only; cross-training (elliptical, rides, strength ...) is a second chart on the
+  same weeks, in hours, never added to the run miles. Season starts (1 July) are marked, partial
+  weeks are lighter, a dot marks weeks that also had runs with no distance (time only - they add
+  no miles), and weeks with no data are shaded and left empty - never filled from workbook
+  volume. Hover (or focus the chart and use the arrow keys) for each week; per-season totals and
+  every week are in tables below.
 - **Races**: track - one panel per event (800 / 1600 / 3200) on a shared time axis, faster
   higher, dots filled where the race was a PR when it was run, the lifetime PR labelled, hover for
   meet / mark / place. Cross country - every course the athlete ran more than once (same meet

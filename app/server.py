@@ -140,7 +140,9 @@ class Data:
 
         self.sheets, self.blocks, self.presc = table("sheets"), table("blocks"), table("prescriptions")
         self.ab, self.reps, self.days = table("athlete_blocks"), table("reps"), table("days")
-        self.races, self.mileage = table("races"), table("weekly_mileage")
+        self.races = table("races")
+        # Strava: activities, and the weekly series the Mileage tab shows (activities and / or the weekly export)
+        self.acts, self.weeks = table("activities"), table("athlete_weeks")
         con.close()
         # a result Athletic.net posted twice (two meet IDs for one race) is marked by the build; show it once
         self.races = [r for r in self.races if not r.get("duplicate_of")]
@@ -152,7 +154,7 @@ class Data:
         self.presc_by_block, self.ab_by_block, self.reps_by_block = defaultdict(list), defaultdict(list), defaultdict(list)
         self.races_by_date, self.races_by_athlete = defaultdict(list), defaultdict(list)
         self.ab_by_athlete, self.reps_by_athlete_block = defaultdict(list), defaultdict(list)
-        self.mileage_by_athlete = defaultdict(list)
+        self.weeks_by_athlete, self.acts_by_athlete_date, self.act_dates = defaultdict(list), defaultdict(list), defaultdict(set)
         for s in self.sheets:
             self.sheets_by_date[s["date"]].append(s)
         for b in self.blocks:
@@ -168,9 +170,15 @@ class Data:
         for r in self.races:
             self.races_by_date[r["date"]].append(r)
             self.races_by_athlete[akey(r)].append(r)
-        for m in self.mileage:
-            if m.get("athlete_id"):
-                self.mileage_by_athlete[m["athlete_id"]].append(m)
+        for w in self.weeks:
+            self.weeks_by_athlete[w["athlete_id"]].append(w)
+        for lst in self.weeks_by_athlete.values():
+            lst.sort(key=lambda w: w["week_start"])
+        for a in self.acts:
+            if a.get("athlete_id"):
+                self.acts_by_athlete_date[(a["athlete_id"], a["date"])].append(a)
+                if a["counts_as"] in ("run", "cross"):  # a training day (a walk alone isn't)
+                    self.act_dates[a["athlete_id"]].add(a["date"])
         for lst in self.blocks_by_sheet.values():
             lst.sort(key=lambda b: b["block_no"])
         for lst in self.presc_by_block.values():
@@ -210,6 +218,9 @@ class Data:
             e["races"] += 1
             e["name"] = r["athlete_name"]  # Athletic.net spelling wins
             e["gender"] = r.get("gender", "")
+        for aid, dates in self.act_dates.items():  # a season with Strava activities is one of the athlete's seasons
+            if aid in self.athletes:
+                self.athletes[aid]["seasons"] |= {season_of(d) for d in dates}
 
     # ---- helpers -------------------------------------------------------------------------------
     def filter_set(self, season, f):
@@ -398,7 +409,7 @@ class Data:
         return sorted((self.head(k) for k in self.athletes), key=lambda e: e["name"].lower())
 
     def head(self, key):
-        """An athlete's directory entry: name, Athletic.net ID, seasons (workbooks or races), varsity seasons."""
+        """An athlete's directory entry: name, Athletic.net ID, seasons (workbooks, races or Strava), varsity seasons."""
         e = self.athletes[key]
         return {**e, "seasons": sorted(e["seasons"]),
                 "varsity_seasons": sorted(s for s in e["seasons"] if key in self.varsity.get(s, ()))}
@@ -487,16 +498,28 @@ class Data:
         return {**self.head(key), "items": items}
 
     def athlete_mileage(self, key):
-        """Every Strava week for the athlete, all seasons (joined on the Athletic.net ID). Weeks with no row
-        stay missing - nothing is filled in from the workbooks."""
+        """Every week of Strava run miles for the athlete, all seasons (joined on the Athletic.net ID): from their
+        activities, or the weekly export where there are none (rules/mileage.csv picks when both exist), with
+        cross-training minutes beside it. Weeks with no row stay missing - nothing is filled in from the workbooks."""
         if key not in self.athletes:
             return None
         head = self.head(key)
-        rows = sorted(self.mileage_by_athlete.get(head["athlete_id"], []), key=lambda m: m["week_start"]) if head["athlete_id"] else []
-        weeks = [{"week_start": m["week_start"], "week_end": m["week_end"], "miles": m["miles"],
-                  "partial": bool(m["partial_week"]), "note": m["week_note"] or "", "source": m["source_file"]} for m in rows]
-        span = (min(m["week_start"] for m in self.mileage), max(m["week_end"] for m in self.mileage)) if self.mileage else None
-        return {"athlete": head, "weeks": weeks, "all_weeks_span": span, "n_athletes_with_mileage": len(self.mileage_by_athlete)}
+        rows = self.weeks_by_athlete.get(head["athlete_id"], []) if head["athlete_id"] else []
+        weeks = [{"week_start": w["week_start"], "week_end": w["week_end"], "miles": w["run_miles"], "source": w["source"],
+                  "partial": bool(w["partial_week"]), "note": w["week_note"] or "", "activity_miles": w["activity_run_miles"],
+                  "export_miles": w["export_miles"], "export_file": w["export_file"], "compare_miles": w["compare_miles"],
+                  "export_diff": w["export_minus_activities"], "n_runs": w["n_runs"], "no_dist": w["runs_no_distance"],
+                  "no_dist_min": w["run_min_no_distance"], "cross_min": w["cross_min"], "n_cross": w["n_cross"],
+                  "cross_sports": w["cross_sports"] or "", "longest_mi": w["longest_run_mi"], "longest_date": w["longest_run_date"]}
+                 for w in rows]
+        span = (min(w["week_start"] for w in self.weeks), max(w["week_end"] for w in self.weeks)) if self.weeks else None
+        aid = head["athlete_id"]
+        acts = [a for d in sorted(self.act_dates.get(aid, ())) for a in self.acts_by_athlete_date[(aid, d)]
+                if a["counts_as"] in ("run", "cross")] if aid else []
+        both = [w for w in self.weeks if w["activity_run_miles"] is not None and w["export_miles"] is not None]
+        return {"athlete": head, "weeks": weeks, "all_weeks_span": span, "n_athletes_with_mileage": len(self.weeks_by_athlete),
+                "activities": {"first": acts[0]["date"], "last": acts[-1]["date"], "n": len(acts)} if acts else None,
+                "prefer": "export" if any(w["source"] == "export" for w in both) else "activities"}
 
     def athlete_races(self, key):
         """Track: every result per event, oldest first, with PRs (faster than everything before it in that

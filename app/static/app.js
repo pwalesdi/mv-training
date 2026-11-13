@@ -369,24 +369,63 @@ async function athleteHistory(key, q) {
 }
 const chartWidth = () => Math.max(360, Math.min(1440, (main.clientWidth || 960) - 40 - 26));
 const fmtMi = v => (v === null || v === undefined || v === '') ? '' : String(+Number(v).toFixed(2));
+const fmtMi1 = v => (v === null || v === undefined || v === '') ? '' : Number(v).toFixed(1);
+const plural = (n, one, many = one + 's') => `${n} ${n === 1 ? one : many}`;
+function fmtMin(m) {  // minutes -> '45 min' / '1 h 05 min'
+  m = Math.round(Number(m) || 0);
+  return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${String(m % 60).padStart(2, '0')} min` : ''}`;
+}
+const weekText = w => `Week ${fmtDateShort(w.week_start)} – ${fmtDateShort(w.week_end)}, ${w.week_end.slice(0, 4)}`;
+const has = v => v !== null && v !== undefined && v !== '';
+function runReadout(w) {
+  const lines = [[`${fmtMi(w.miles)} mi run`, 'tv'], [weekText(w)]];
+  if (w.source === 'activities') {
+    lines.push([`From Strava activities: ${plural(w.n_runs, 'run')}${w.longest_mi ? `, longest ${fmtMi(w.longest_mi)} mi (${fmtDateShort(w.longest_date)})` : ''}`]);
+  } else lines.push([`From the weekly export (${w.export_file})`]);
+  if (w.no_dist) lines.push([`+ ${plural(w.no_dist, 'run')} with no distance (${fmtMin(w.no_dist_min)}) - not in the miles`, 'tn']);
+  if (has(w.activity_miles) && has(w.export_miles)) {
+    const other = w.source === 'activities' ? `Weekly export: ${fmtMi(w.export_miles)} mi` : `Strava activities: ${fmtMi(w.activity_miles)} mi`;
+    const same = has(w.export_diff) && Math.abs(w.export_diff) <= 0.05;
+    lines.push([`${other}${same ? ' (same)' : has(w.compare_miles) && w.compare_miles !== w.activity_miles ? ` (activities over the export’s days: ${fmtMi(w.compare_miles)} mi)` : ''}`, 'tn']);
+  }
+  if (w.cross_min) lines.push([`Cross-training ${fmtMin(w.cross_min)}`, 'tn']);
+  if (w.partial) lines.push([`Partial week${w.note ? `: ${w.note}` : ''}`, 'tn']);
+  return lines;
+}
+function crossReadout(w) {
+  return [[w.cross_min ? fmtMin(w.cross_min) : 'none', 'tv'], [weekText(w)],
+    [w.cross_sports ? w.cross_sports.replace(/(\d+) min/g, (_, n) => fmtMin(n)) : 'No cross-training this week'],
+    ...(w.partial ? [[`Partial week${w.note ? `: ${w.note}` : ''}`, 'tn']] : [])];
+}
 async function athleteMileage(key, q) {
   const res = await api(`/api/athlete/mileage?key=${enc(key)}`);
-  const a = res.athlete, weeks = res.weeks;
+  const a = res.athlete, weeks = res.weeks, sp = res.all_weeks_span;
   let html = athleteHead(a, key, 'mileage', q.get('season') || '');
-  const span = res.all_weeks_span ? `Strava data so far covers ${fmtDateShort(res.all_weeks_span[0])}, ${res.all_weeks_span[0].slice(0, 4)} – ${fmtDateShort(res.all_weeks_span[1])}, ${res.all_weeks_span[1].slice(0, 4)} for ${res.n_athletes_with_mileage} athletes.` : 'No Strava mileage has been loaded yet.';
+  const span = sp ? `Weekly Strava data so far covers ${longDate(sp[0])} – ${longDate(sp[1])} for ${res.n_athletes_with_mileage} athletes.` : 'No Strava data has been loaded yet.';
   if (!weeks.length) {
-    html += `<p>${a.athlete_id ? `No Strava weekly mileage for ${esc(a.name)}.` : `${esc(a.name)} isn’t matched to an Athletic.net ID, and Strava mileage is matched through that ID (data/rules/strava_aliases.csv), so none can be shown.`}</p><p class="muted small">${span} Weeks without Strava data are left empty - the workbook volume is never used to fill them.</p>`;
+    html += `<p>${a.athlete_id ? `No Strava data for ${esc(a.name)}.` : `${esc(a.name)} isn’t matched to an Athletic.net ID, and Strava data is matched through that ID (data/rules/strava_aliases.csv), so none can be shown.`}</p><p class="muted small">${span} Weeks without Strava data are left empty - the workbook volume is never used to fill them.</p>`;
     main.innerHTML = html;
     window.scrollTo(0, 0);
     return;
   }
-  const first = weeks[0], last = weeks[weeks.length - 1];
-  html += `<div class="chart"><h3>Weekly mileage</h3>
-    <p class="muted small">Strava, Monday–Sunday weeks, ${weeks.length} week${weeks.length === 1 ? '' : 's'} from ${fmtDateShort(first.week_start)}, ${first.week_start.slice(0, 4)} to ${fmtDateShort(last.week_end)}, ${last.week_end.slice(0, 4)}. Hover (or focus and use ← →) for each week.</p>
-    <div class="chartkey"><span><i class="k-bar"></i>miles in the week</span><span><i class="k-bar partial"></i>partial week</span><span><i class="k-gap"></i>no data (left empty)</span><span><i class="k-season"></i>season starts 1 July</span></div>
-    ${Charts.mileage(weeks, chartWidth())}</div>`;
+  const t0 = Charts.ms(weeks[0].week_start), t1 = Charts.ms(weeks[weeks.length - 1].week_start) + 7 * Charts.DAY;
+  const nAct = weeks.filter(w => w.source === 'activities').length, nExp = weeks.length - nAct;
+  const cross = weeks.filter(w => has(w.cross_min)), nd = weeks.filter(w => w.no_dist > 0), acts = res.activities;
+  const src = [nAct ? `${plural(nAct, 'week')} from Strava activities${acts ? ` (${longDate(acts.first)} – ${longDate(acts.last)})` : ''}` : '',
+    nExp ? `${plural(nExp, 'week')} from the weekly export` : ''].filter(Boolean).join(', ');
+  const both = weeks.some(w => has(w.activity_miles) && has(w.export_miles));
+  html += `<div class="chart"><h3>Weekly run miles</h3>
+    <p class="muted small">Monday–Sunday weeks, runs only (rules/strava_sports.csv): ${src}.${both ? (res.prefer === 'activities' ? ' Where a week is in both, the activities are shown and the export’s number is in the hover and the table (rules/mileage.csv).' : ' Where a week is in both, the weekly export is shown (rules/mileage.csv).') : ''} Hover (or focus and use ← →) for each week.</p>
+    <div class="chartkey"><span><i class="k-bar"></i>run miles</span><span><i class="k-bar partial"></i>partial week</span>${nd.length ? '<span><i class="k-nd"></i>also runs with no distance (not in the miles)</span>' : ''}<span><i class="k-gap"></i>no data (left empty)</span><span><i class="k-season"></i>season starts 1 July</span></div>
+    ${Charts.weekBars(weeks, chartWidth(), { value: w => w.miles, cls: 'mbar', marker: w => w.no_dist > 0, readout: runReadout, label: `Weekly run miles for ${a.name}` })}</div>`;
+  if (cross.length) {
+    html += `<div class="chart"><h3>Cross-training</h3>
+      <p class="muted small">Hours per week of the activities rules/strava_sports.csv counts as cross-training (elliptical, rides, strength, …) - never added to the run miles. Same weeks as above; weeks from the weekly export have no activity detail, so they’re left empty here.</p>
+      <div class="chartkey"><span><i class="k-bar cross"></i>cross-training hours</span><span><i class="k-bar cross partial"></i>partial week</span><span><i class="k-gap"></i>no activity data</span></div>
+      ${Charts.weekBars(weeks, chartWidth(), { value: w => has(w.cross_min) ? w.cross_min / 60 : null, cls: 'cbar', height: 160, t0, t1, readout: crossReadout, label: `Weekly cross-training hours for ${a.name}` })}</div>`;
+  }
   html += mileageSeasons(weeks) + mileageWeeks(weeks);
-  html += `<p class="muted small">${span} Weeks without Strava data stay empty - the workbook volume is never used to fill them.</p>`;
+  html += `<p class="muted small">${span} Weeks without Strava data stay empty - the workbook volume is never used to fill them.${nd.length ? ` ${plural(nd.length, 'week')} also had runs with no distance recorded (time only): they add no miles, and a dot marks them.` : ''}</p>`;
   main.innerHTML = html;
   Charts.wire(main);
   window.scrollTo(0, 0);
@@ -402,27 +441,35 @@ function mileageSeasons(weeks) {
     const full = ws.filter(w => !w.partial), total = ws.reduce((t, w) => t + Number(w.miles), 0);
     const avg = full.length ? full.reduce((t, w) => t + Number(w.miles), 0) / full.length : null;
     const peak = full.reduce((p, w) => (!p || Number(w.miles) > Number(p.miles) ? w : p), null);
+    const cw = ws.filter(w => has(w.cross_min)), cross = cw.reduce((t, w) => t + Number(w.cross_min), 0);
     return `<tr><td>${esc(s)}</td><td class="num">${ws.length}</td><td class="num">${ws.length - full.length}</td><td class="num">${total.toFixed(1)}</td>
-      <td class="num">${avg === null ? '–' : avg.toFixed(1)}</td><td class="num">${peak ? esc(fmtMi(peak.miles)) : '–'}</td><td>${peak ? `${fmtDateShort(peak.week_start)}, ${peak.week_start.slice(0, 4)}` : ''}</td></tr>`;
+      <td class="num">${avg === null ? '–' : avg.toFixed(1)}</td><td class="num">${peak ? esc(fmtMi(peak.miles)) : '–'}</td><td>${peak ? longDate(peak.week_start) : ''}</td>
+      <td class="num">${cw.length ? (cross / 60).toFixed(1) : '–'}</td></tr>`;
   }).join('');
-  return `<h3 class="sub">By season</h3><table class="list mileage-seasons"><thead><tr><th>Season</th><th class="num">Weeks with data</th><th class="num">Partial weeks</th><th class="num">Total mi</th><th class="num">Avg full week</th><th class="num">Peak full week</th><th>Peak week starts</th></tr></thead><tbody>${rows}</tbody></table>
+  return `<h3 class="sub">By season</h3><table class="list mileage-seasons"><thead><tr><th>Season</th><th class="num">Weeks with data</th><th class="num">Partial weeks</th><th class="num">Run mi</th><th class="num">Avg full week</th><th class="num">Peak full week</th><th>Peak week starts</th><th class="num">Cross-training h</th></tr></thead><tbody>${rows}</tbody></table>
     <p class="muted small">Seasons run 1 July - 30 June; a week counts in the season it starts in. Averages and peaks use full weeks only.</p>`;
 }
 function mileageWeeks(weeks) {
   const DAY = Charts.DAY, out = [];
   for (let i = weeks.length - 1; i >= 0; i--) {
     const w = weeks[i];
-    out.push(`<tr data-week="${esc(w.week_start)}"><td class="nowrap">${fmtDateShort(w.week_start)} – ${fmtDateShort(w.week_end)}, ${w.week_end.slice(0, 4)}</td><td class="num">${esc(fmtMi(w.miles))}</td><td>${w.partial ? `partial${w.note ? ': ' + esc(w.note) : ''}` : esc(w.note)}</td><td class="muted small">${esc(w.source)}</td></tr>`);
+    const runs = has(w.n_runs) ? `${w.n_runs}${w.no_dist ? ` <span class="muted small">(${w.no_dist} no distance, ${esc(fmtMin(w.no_dist_min))})</span>` : ''}` : '';
+    const longest = w.longest_mi ? `${esc(fmtMi(w.longest_mi))} mi <span class="muted small">${esc(fmtDateShort(w.longest_date).split(',')[0])}</span>` : '';
+    const src = w.source === 'activities' ? `activities${has(w.export_miles) ? ` <span class="muted small">· export ${esc(fmtMi(w.export_miles))}</span>` : ''}`
+      : `export <span class="muted small">${esc(w.export_file)}${has(w.activity_miles) ? ` · activities ${esc(fmtMi(w.activity_miles))}` : ''}</span>`;
+    const note = [w.partial ? `partial${w.note ? ': ' + w.note : ''}` : w.note,
+      has(w.export_diff) && Math.abs(w.export_diff) > 1 ? `the export differs by ${fmtMi(Math.abs(w.export_diff))} mi` : ''].filter(Boolean).join('; ');
+    out.push(`<tr data-week="${esc(w.week_start)}"><td class="nowrap">${fmtDateShort(w.week_start)} – ${fmtDateShort(w.week_end)}, ${w.week_end.slice(0, 4)}</td><td class="num">${esc(fmtMi(w.miles))}</td><td class="num">${runs}</td><td class="num nowrap">${longest}</td><td class="num">${has(w.cross_min) ? (w.cross_min ? esc(fmtMin(w.cross_min)) : '0') : ''}</td><td>${src}</td><td>${esc(note)}</td></tr>`);
     if (i > 0) {  // the weeks missing between this one and the one before it
       const end = Charts.ms(weeks[i - 1].week_start) + 7 * DAY, next = Charts.ms(w.week_start);
       const n = Math.round((next - end) / (7 * DAY));
       if (next - end >= 6.5 * DAY) {
         const a = new Date(end).toISOString().slice(0, 10), b = new Date(next - DAY).toISOString().slice(0, 10);
-        out.push(`<tr class="gaprow"><td class="nowrap">${fmtDateShort(a)} – ${fmtDateShort(b)}, ${b.slice(0, 4)}</td><td class="num">–</td><td>no data (${n} week${n === 1 ? '' : 's'})</td><td></td></tr>`);
+        out.push(`<tr class="gaprow"><td class="nowrap">${fmtDateShort(a)} – ${fmtDateShort(b)}, ${b.slice(0, 4)}</td><td class="num">–</td><td colspan="5">no data (${plural(n, 'week')})</td></tr>`);
       }
     }
   }
-  return `<details class="weeks"><summary>Every week (${weeks.length}) - newest first</summary><table class="list"><thead><tr><th>Week (Mon–Sun)</th><th class="num">Miles</th><th>Note</th><th>File</th></tr></thead><tbody>${out.join('')}</tbody></table></details>`;
+  return `<details class="weeks"><summary>Every week (${weeks.length}) - newest first</summary><table class="list"><thead><tr><th>Week (Mon–Sun)</th><th class="num">Run mi</th><th class="num">Runs</th><th class="num">Longest run</th><th class="num">Cross-training</th><th>Source</th><th>Note</th></tr></thead><tbody>${out.join('')}</tbody></table></details>`;
 }
 /* ---------- athlete races ---------- */
 const longDate = iso => `${fmtDateShort(iso)}, ${iso.slice(0, 4)}`;

@@ -59,27 +59,37 @@ const Charts = (() => {
   }
   const tipHide = () => { tipEl().hidden = true; };
 
-  /* ---- weekly mileage: one bar per Monday-Sunday week on a time axis ---- */
-  // weeks: [{week_start, week_end, miles, partial, note}] sorted by week_start
-  function mileage(weeks, width) {
+  /* ---- weekly bars: one bar per Monday-Sunday week on a time axis ---- */
+  // weeks: [{week_start, week_end, partial, ...}] sorted by week_start. opts:
+  //   value(w)   the bar's number; null / undefined = no data that week (shaded, never drawn as 0)
+  //   cls        bar class ('mbar' run miles, 'cbar' cross-training); height; label (screen readers)
+  //   t0, t1     ms - share another chart's time axis so the two line up
+  //   marker(w)  true -> a small dot above the bar (runs with no distance)
+  //   readout(w) tooltip lines [[text, class]] for a week with data
+  function weekBars(weeks, width, opts = {}) {
+    const val = opts.value || (w => w.miles);
+    const rows = weeks.filter(w => val(w) !== null && val(w) !== undefined);
     const id = `ch${nextId++}`;
-    const W = Math.max(360, width), H = 230, L = 40, R = 14, T = 26, B = 28;
-    const t0 = ms(weeks[0].week_start), t1 = ms(weeks[weeks.length - 1].week_start) + 7 * DAY;
+    const W = Math.max(360, width), H = opts.height || 230, L = 40, R = 14, T = 26, B = 28;
+    const t0 = opts.t0 ?? ms(rows[0].week_start), t1 = opts.t1 ?? ms(rows[rows.length - 1].week_start) + 7 * DAY;
     const ppd = (W - L - R) / ((t1 - t0) / DAY);
     const x = t => L + (t - t0) / DAY * ppd;
-    const max = Math.max(1, ...weeks.map(w => w.miles));
-    const step = niceStep(max, 4), top = Math.ceil(max / step) * step;
+    const max = Math.max(1, ...rows.map(val));
+    const step = niceStep(max, H < 200 ? 3 : 4), top = Math.ceil(max / step) * step;
     const y = v => T + (H - T - B) * (1 - v / top);
     const slot = 7 * ppd, bw = slot >= 6 ? Math.min(24, slot - 2) : Math.max(1, slot * 0.7);
     const gaps = [];
-    for (let i = 1; i < weeks.length; i++) {
-      const end = ms(weeks[i - 1].week_start) + 7 * DAY, next = ms(weeks[i].week_start);
-      if (next - end >= 6.5 * DAY) gaps.push([end, next]);
+    let seen = t0;  // shade every stretch of a week or more without a row, edges included
+    for (const w of rows) {
+      const a = ms(w.week_start);
+      if (a - seen >= 6.5 * DAY) gaps.push([seen, a]);
+      seen = Math.max(seen, a + 7 * DAY);
     }
+    if (t1 - seen >= 6.5 * DAY) gaps.push([seen, t1]);
     let s = '';
     for (let v = 0; v <= top + 1e-9; v += step) {
       s += `<line class="gl" x1="${L}" x2="${W - R}" y1="${x1(y(v))}" y2="${x1(y(v))}"/>`
-        + `<text class="ax" x="${L - 6}" y="${x1(y(v) + 4)}" text-anchor="end">${+v.toFixed(1)}</text>`;
+        + `<text class="ax" x="${L - 6}" y="${x1(y(v) + 4)}" text-anchor="end">${+v.toFixed(2)}</text>`;
     }
     for (const [a, b] of gaps) {
       const gx = x(a), gw = x(b) - x(a);
@@ -100,33 +110,29 @@ const Charts = (() => {
         + `<text class="ax" x="${x1(x(t))}" y="${H - 8}" text-anchor="middle">${tickLabel(t, i, k)}</text>`;
     });
     s += `<line class="base" x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}"/>`;
-    weeks.forEach((w, i) => {
-      const cx = x(ms(w.week_start)) + slot / 2, xs = cx - bw / 2, yy = y(w.miles), base = y(0);
+    rows.forEach((w, i) => {
+      const v = val(w), cx = x(ms(w.week_start)) + slot / 2, xs = cx - bw / 2, yy = y(v), base = y(0);
       const h = base - yy, r = Math.min(4, bw / 2, h);
       const d = h <= 0 ? `M${x1(xs)},${x1(base)}h${x1(bw)}` // a zero week: nothing to draw but keep the node
         : `M${x1(xs)},${x1(base)}V${x1(yy + r)}Q${x1(xs)},${x1(yy)} ${x1(xs + r)},${x1(yy)}H${x1(xs + bw - r)}Q${x1(xs + bw)},${x1(yy)} ${x1(xs + bw)},${x1(yy + r)}V${x1(base)}Z`;
-      s += `<path class="mbar${w.partial ? ' partial' : ''}" data-i="${i}" data-miles="${w.miles}" d="${d}"/>`;
+      s += `<path class="wbar ${opts.cls || 'mbar'}${w.partial ? ' partial' : ''}" data-i="${i}" data-v="${v}" d="${d}"/>`;
+      if (opts.marker && opts.marker(w)) s += `<circle class="nd" cx="${x1(cx)}" cy="${x1(Math.min(yy, base) - 7)}" r="3.5"/>`;
     });
     s += `<line class="xhair" x1="0" x2="0" y1="${T}" y2="${H - B}" visibility="hidden"/>`
       + `<rect class="hit" x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}"/>`;
-    registry.set(id, { kind: 'mileage', weeks, t0, x, slot, ppd, L });
-    const label = `Weekly mileage, ${weeks.length} weeks from ${md(t0)}, ${year(t0)} to ${md(t1 - DAY)}, ${year(t1 - DAY)}. Use the arrow keys to read each week; the table below has every value.`;
+    registry.set(id, { kind: 'weeks', weeks: rows, t0, x, slot, ppd, L, readout: opts.readout || (w => [[String(val(w)), 'tv']]) });
+    const label = `${opts.label || 'Weekly values'}, ${rows.length} weeks from ${md(t0)}, ${year(t0)} to ${md(t1 - DAY)}, ${year(t1 - DAY)}. Use the arrow keys to read each week; the table below has every value.`;
     return `<svg data-chart="${id}" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" tabindex="0" role="img" aria-label="${esc(label)}">${s}</svg>`;
   }
 
-  function mileageReadout(c, svg, i, t) {
-    const w = i >= 0 ? c.weeks[i] : null;
-    if (w) {
-      const a = ms(w.week_start);
-      return [[`${w.miles} mi`, 'tv'], [`Week ${wmd(a)} – ${wmd(ms(w.week_end))}, ${year(ms(w.week_end))}`],
-        ...(w.partial ? [[`Partial week${w.note ? `: ${w.note}` : ''}`, 'tn']] : w.note ? [[w.note, 'tn']] : [])];
-    }
+  function weekReadout(c, i, t) {
+    if (i >= 0) return c.readout(c.weeks[i]);
     const a = c.t0 + Math.floor((t - c.t0) / (7 * DAY)) * 7 * DAY;
     return [['no data', 'tv'], [`Week ${wmd(a)} – ${wmd(a + 6 * DAY)}, ${year(a + 6 * DAY)}`]];
   }
 
-  function wireMileage(svg, c) {
-    const bars = [...svg.querySelectorAll('.mbar')], hair = svg.querySelector('.xhair');
+  function wireWeeks(svg, c) {
+    const bars = [...svg.querySelectorAll('.wbar')], hair = svg.querySelector('.xhair');
     let cur = -1;
     const mark = (i, slotT) => {
       bars.forEach(b => b.classList.toggle('on', +b.dataset.i === i));
@@ -142,12 +148,12 @@ const Charts = (() => {
       const i = c.weeks.findIndex(w => t >= ms(w.week_start) && t < ms(w.week_start) + 7 * DAY);
       const slotT = c.t0 + Math.floor((t - c.t0) / (7 * DAY)) * 7 * DAY;
       mark(i, slotT);
-      tipShow(mileageReadout(c, svg, i, t), e.clientX, e.clientY);
+      tipShow(weekReadout(c, i, t), e.clientX, e.clientY);
     });
     svg.addEventListener('pointerleave', clear);
     const showKey = () => {
       const cx = mark(cur), box = svg.getBoundingClientRect(), sc = box.width / svg.viewBox.baseVal.width;
-      tipShow(mileageReadout(c, svg, cur, 0), box.left + cx * sc, box.top + 30);
+      tipShow(weekReadout(c, cur, 0), box.left + cx * sc, box.top + 30);
     };
     svg.addEventListener('focus', () => { cur = c.weeks.length - 1; showKey(); });
     svg.addEventListener('blur', clear);
@@ -287,11 +293,11 @@ const Charts = (() => {
       const c = registry.get(svg.dataset.chart);
       if (!c || svg.dataset.wired) continue;
       svg.dataset.wired = '1';
-      if (c.kind === 'mileage') wireMileage(svg, c);
+      if (c.kind === 'weeks') wireWeeks(svg, c);
       else if (c.kind === 'points') wirePoints(svg, c);
     }
   }
   function reset() { registry.clear(); tipHide(); }
 
-  return { mileage, progression, course, wire, reset, seasonName, ms, DAY, wmd, year };
+  return { weekBars, progression, course, wire, reset, seasonName, ms, DAY, wmd, year };
 })();
