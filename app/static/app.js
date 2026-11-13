@@ -182,6 +182,7 @@ async function viewDay(date, q) {
     day.church ? '<span class="badge">Church loop</span>' : '', day.races.length ? '<span class="badge race">Race day</span>' : ''].join(' ');
   html += `<div class="dayhead"><h1>${fmtDateLong(date)}</h1><span class="muted">${seasonLabel(day.season)}</span>${badges}</div>`;
   if (hl) html += `<p class="small"><span class="hlkey">${esc(hl.name)}</span> highlighted${day.filter === 'varsity' && !hl.varsity ? ' - shown with the varsity athletes even though they weren’t varsity this season' : ''}.</p>`;
+  if (hl && hl.activities && hl.activities.length) html += `<div class="stravaday"><h3>${esc(hl.name)} on Strava</h3><ul>${hl.activities.map(activityLine).join('')}</ul></div>`;
   if (day.filter === 'varsity') html += `<p class="muted small">Varsity filter: only varsity athletes are listed. Switch to “All athletes” to see every group.</p>`;
   else if (filter === 'varsity' && !day.varsity_available) html += '<p class="note small">No varsity list for this season (no cross-country race data) - showing all athletes.</p>';
   if (day.races.length) html += `<h2>Races</h2>${racesTable(day.races, false, ctx)}`;
@@ -191,6 +192,15 @@ async function viewDay(date, q) {
   main.innerHTML = html;
   const first = hl && main.querySelector('tr.hl');
   if (first) first.scrollIntoView({ block: 'center' }); else window.scrollTo(0, 0);
+}
+function activityLine(x) {
+  const what = x.counts_as === 'run' || (x.counts_as === 'excluded' && x.sport === 'Run')
+    ? (x.miles ? `Run ${fmtMi(x.miles)} mi${paceOk(x) ? ` at ${x.pace}/mi` : ''}` : 'Run, no distance recorded') : `${x.sport}${x.miles ? ` ${fmtMi(x.miles)} mi` : ''}`;
+  const bits = [what, x.moving, x.longest ? 'longest run of the week' : '', x.counts_as === 'cross' ? 'cross-training' : '',
+    x.counts_as === 'other' ? 'not counted (rules/strava_sports.csv)' : '', x.counts_as === 'excluded' ? `left out - ${x.fix}` : '',
+    x.check ? `check: ${x.check}` : ''].filter(Boolean);
+  const link = /^https:\/\/www\.strava\.com\/activities\/\d+$/.test(x.url || '') ? ` <a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">Strava ↗</a>` : '';
+  return `<li${x.counts_as === 'excluded' ? ' class="excluded"' : ''}>${esc(bits.join(' · '))}${link}</li>`;
 }
 function racesTable(races, showDate, ctx = {}) {
   return `<table class="list"><thead><tr>${showDate ? '<th>Date</th>' : ''}<th>Athlete</th><th>Meet</th><th>Event</th><th>Race</th><th>Mark</th><th>Place</th></tr></thead><tbody>${
@@ -313,14 +323,15 @@ async function athleteCalendar(key, q) {
   const months = dates.length ? monthRange(dates[0].slice(0, 7), dates[dates.length - 1].slice(0, 7)) : [];
   const opts = a.seasons.map(s => `<option value="${s}"${s === season ? ' selected' : ''}>${seasonLabel(s)}</option>`).join('');
   const nT = dates.filter(d => days[d].practice).length, nR = dates.filter(d => days[d].races.length).length;
+  const nS = dates.filter(d => days[d].runs.length).length;
   let html = athleteHead(a, key, 'calendar', season);
   html += `<div class="bar"><select id="season" aria-label="Season">${opts}</select>
     <nav class="months" aria-label="Months">${months.map(m => `<a class="${withData.has(m) ? '' : 'empty'}" href="${athleteUrl(key, { season, m })}">${monthName(m, true)}</a>`).join('')}</nav>
-    <span class="muted small">${nT} training day${nT === 1 ? '' : 's'} · ${nR} race day${nR === 1 ? '' : 's'} in ${seasonLabel(season)}</span></div>`;
-  html += `<p class="muted small">Only the days ${esc(a.name)} is on a workout sheet or raced. Chips are the types of their own reps (dashed = inferred from pace). Click a day for the full day with their row highlighted.</p>`;
+    <span class="muted small">${plural(nT, 'workout-sheet day')} · ${plural(nR, 'race day')} · ${plural(nS, 'day')} with Strava runs in ${seasonLabel(season)}</span></div>`;
+  html += `<p class="muted small">Only the days ${esc(a.name)} is on a workout sheet, raced, or recorded a Strava run or cross-training. Chips are the types of their own reps (dashed = inferred from pace). Strava runs show distance · pace per mile; <b>bold</b> = the longest run of that Monday–Sunday week (a long-run candidate - no long-run rule set yet). Click a day for the full day with their row highlighted.</p>`;
   html += legendHtml();
   for (const m of months) html += monthGrid(m, days, (iso, d, info) => athleteDayCell(iso, d, info, key));
-  if (!months.length) html += `<p class="muted">No training or races in ${seasonLabel(season)}.</p>`;
+  if (!months.length) html += `<p class="muted">No training, races or Strava activities in ${seasonLabel(season)}.</p>`;
   main.innerHTML = html;
   document.getElementById('season').addEventListener('change', e => { location.hash = athleteUrl(key, { season: e.target.value }); });
   const want = q.get('m'), el = want && document.getElementById(`m-${want}`);
@@ -345,8 +356,29 @@ function athleteDayCell(iso, d, info, key) {
     return `<span class="raceres" title="${esc(t)}">${esc(shortEvent(r.event))} <b>${esc(r.mark)}</b></span>`;
   }).join('')}`).join('');
   const quiet = info.practice && !info.chips.length ? '<span class="quiet">practice · no type</span>' : '';
-  const label = `${fmtDateLong(iso)}: ${[...info.chips.map(c => c.label + (c.src === 'inferred' ? ' (inferred)' : '')), ...info.races.map(r => `${r.meet} ${r.event} ${r.mark}`)].join(', ') || 'practice, no type'}`;
-  return `<a class="cell has" href="#/day/${iso}?a=${enc(key)}" aria-label="${esc(label)}"><div class="top-row"><span class="dnum">${d}</span>${b.join('')}</div><div class="chips">${chips}</div>${races}${quiet}</a>`;
+  const label = `${fmtDateLong(iso)}: ${[...info.chips.map(c => c.label + (c.src === 'inferred' ? ' (inferred)' : '')), ...info.races.map(r => `${r.meet} ${r.event} ${r.mark}`),
+    ...info.runs.map(runText), ...info.cross.map(c => `${c.sport} ${fmtMin(c.min)}`)].join(', ') || 'practice, no type'}`;
+  return `<a class="cell has" href="#/day/${iso}?a=${enc(key)}" aria-label="${esc(label)}"><div class="top-row"><span class="dnum">${d}</span>${b.join('')}</div><div class="chips">${chips}</div>${races}${quiet}${runsHtml(info)}</a>`;
+}
+// one Strava run: '6.1 mi · 8:22' (pace per mile), or its time when no distance was recorded
+// (pace only from 0.1 mi up - shorter 'runs' are a watch started and stopped, and their pace means nothing)
+const miText = v => (Number(v) >= 1 ? fmtMi1(v) : fmtMi(v));
+const paceOk = r => r.pace && Number(r.miles) >= 0.1;
+const runShort = r => r.miles ? `${miText(r.miles)} mi${paceOk(r) ? ` · ${r.pace}` : ''}` : `${fmtMin((r.moving_s || 0) / 60)} · no distance`;
+const runText = r => `${r.miles ? `${fmtMi(r.miles)} mi run in ${r.moving}${paceOk(r) ? ` (${r.pace}/mi)` : ''}` : `run of ${r.moving}, no distance recorded`}${r.longest ? ' - longest run of the week' : ''}${r.check ? ` - check: ${r.check}` : ''}`;
+function runsHtml(info) {
+  if (!info.runs.length && !info.cross.length) return '';
+  const rs = info.runs;
+  let out;
+  if (rs.length <= 2) out = rs.map(r => `<span class="run${r.longest ? ' longest' : ''}">${esc(runShort(r))}</span>`).join('');
+  else {  // a busy day (reps / strides as separate activities): the day's total, then its biggest run
+    const total = rs.reduce((t, r) => t + (Number(r.miles) || 0), 0);
+    const big = rs.find(r => r.longest) || rs.reduce((m, r) => ((Number(r.miles) || 0) > (Number(m.miles) || 0) ? r : m), rs[0]);
+    out = `<span class="run">${rs.length} runs · ${miText(total)} mi</span><span class="run${big.longest ? ' longest' : ''}">${esc(runShort(big))}</span>`;
+  }
+  if (info.cross.length) out += `<span class="cross">+ ${esc(info.cross.map(c => `${c.sport} ${fmtMin(c.min)}`).join(', '))}</span>`;
+  const title = ['Strava:', ...rs.map(runText), ...info.cross.map(c => `${c.sport} ${fmtMin(c.min)} (cross-training)`)].join('\n');
+  return `<div class="runs" title="${esc(title)}">${out}</div>`;
 }
 async function athleteHistory(key, q) {
   if (!WTYPES) WTYPES = await api('/api/workout-types');

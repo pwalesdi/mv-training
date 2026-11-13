@@ -357,8 +357,8 @@ class Data:
             "double": bool(row.get("double_threshold")), "church": bool(row.get("church_loop")),
             "sessions": sessions, "races": self.race_rows(self.races_by_date.get(date, []), F),
             "prev": prev, "next": nxt,
-            "highlight": {"key": hl, "name": self.athletes[hl]["name"],
-                          "varsity": hl in self.varsity.get(season, ())} if hl else None,
+            "highlight": {"key": hl, "name": self.athletes[hl]["name"], "varsity": hl in self.varsity.get(season, ()),
+                          "activities": self.day_activities(hl, date)} if hl else None,
         }
 
     def _block_detail(self, b, shown, F):
@@ -423,11 +423,21 @@ class Data:
         return merge_chips(self.label_chips(block_key))
 
     def athlete_dates(self, key):
+        aid = self.athletes.get(key, {}).get("athlete_id")
         return sorted({a["date"] for a in self.ab_by_athlete.get(key, [])}
-                      | {r["date"] for r in self.races_by_athlete.get(key, [])})
+                      | {r["date"] for r in self.races_by_athlete.get(key, [])} | self.act_dates.get(aid, set()))
+
+    def day_activities(self, key, date):
+        """An athlete's Strava activities on one day (an activity left out by data/rules/strava_fixes.csv too, marked)."""
+        aid = self.athletes.get(key, {}).get("athlete_id")
+        acts = sorted(self.acts_by_athlete_date.get((aid, date), []), key=lambda a: a["activity_id"]) if aid else []
+        return [{"sport": a["sport"], "counts_as": a["counts_as"], "miles": a["miles"], "pace": a["pace"],
+                 "moving": a["moving_time"], "moving_s": a["moving_s"], "longest": bool(a["longest_of_week"]),
+                 "check": a["check"], "fix": a["fix"], "url": a["url"]} for a in acts]
 
     def athlete_calendar(self, key, season=None):
-        """Days this athlete trained (is on a workout sheet) or raced in one season, for the month grid."""
+        """Days this athlete trained (on a workout sheet or a Strava activity) or raced in one season, for the
+        month grid. Each day's runs: distance, pace, and whether it was the week's longest."""
         if key not in self.athletes:
             return None
         head = self.head(key)
@@ -437,7 +447,16 @@ class Data:
         days = {}
 
         def day(d):
-            return days.setdefault(d, {"chips": [], "groups": [], "church": False, "races": []})
+            return days.setdefault(d, {"chips": [], "groups": [], "church": False, "races": [], "runs": [], "cross": []})
+        for d in sorted(self.act_dates.get(head["athlete_id"], ())) if head["athlete_id"] else []:
+            if season_of(d) != season:
+                continue
+            x = day(d)
+            for a in self.day_activities(key, d):
+                if a["counts_as"] == "run":
+                    x["runs"].append({k: a[k] for k in ("miles", "pace", "moving", "moving_s", "longest", "check")})
+                elif a["counts_as"] == "cross":
+                    x["cross"].append({"sport": a["sport"], "min": round((a["moving_s"] or 0) / 60)})
         for a in self.ab_by_athlete.get(key, []):
             if a["season"] != season:
                 continue
@@ -457,7 +476,7 @@ class Data:
         for d, x in sorted(days.items()):
             nos = {g["session_no"] for g in x["groups"] if isinstance(g["session_no"], int)}
             out[d] = {"chips": merge_chips(x["chips"]), "groups": x["groups"], "practice": bool(x["groups"]),
-                      "church": x["church"], "races": x["races"],
+                      "church": x["church"], "races": x["races"], "runs": x["runs"], "cross": x["cross"],
                       "double": bool(self.day_row.get(d, {}).get("double_threshold")) and {1, 2} <= nos}
         return {"athlete": head, "season": season, "days": out}
 
