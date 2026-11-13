@@ -9,20 +9,21 @@ sheet is only used to flag disagreements.
 import datetime as dt
 import re
 
-TAB_RE = re.compile(r"^\s*(\d{1,2})-(\d{1,2})\s*(?:\((\w+)\))?\s*$")
+# '9-25', '9-25 (2)', and '9-26b' (a second group's sheet for the same day - same date, no session number)
+TAB_RE = re.compile(r"^\s*(\d{1,2})-(\d{1,2})\s*(?:\((\w+)\)|([a-z]))?\s*$", re.I)
 MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
 WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
 
 def parse_tab(name):
-    """'9-25 (2)' -> (9, 25, '2'); non-date tabs -> None."""
+    """'9-25 (2)' -> (9, 25, '2'); '9-26b' -> (9, 26, 'b'); non-date tabs -> None."""
     m = TAB_RE.match(name)
     if not m:
         return None
     mo, d = int(m.group(1)), int(m.group(2))
     if not (1 <= mo <= 12 and 1 <= d <= 31):
         return None
-    return mo, d, m.group(3)
+    return mo, d, m.group(3) or m.group(4)
 
 
 def season_years(season):
