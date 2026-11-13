@@ -3,3 +3,5 @@ season,tab,cell,raw_value,corrected_value,note
 2425,10-17,G45,1600,800,block 3 ran an 800 here not a 1600 - splits read ~3:08 (Patrick)
 2425,10-17,G46,6:25,3:12.5,target for that 800 - half the 1600 target (Patrick)
 2425,3-13,A16,Threshold Intervals: 6x8000 @10k RP w/1:00 rec / 2:30 rec,Threshold Intervals: 6x800 @10k RP w/1:00 rec / 2:30 rec,label typo - 800s not 8000s (Patrick)
+2324,3-29,A48,Thershold Intervals: 5x1000m @ 5k RP w/200j + 45s rec,Threshold Intervals: 5x1000m @ 5k RP w/200j + 45s rec,label typo (Thershold) - fixed overnight by Claude as an obvious typo; unconfirmed
+2324,3-29,A80,Thershold Intervals: 4x6000m @ 5k RP w/200j + 45s rec,Threshold Intervals: 4x600m @ 5k RP w/200j + 45s rec,label typos (Thershold; 6000m over four 600 m columns) - fixed overnight by Claude; unconfirmed
