@@ -138,6 +138,9 @@ def parse_anchor(phrase):
     return vals[0], vals[-1], progression
 
 
+LAP_RE = re.compile(r"(?:\b|(?<=\d)|(?<=\dx))laps?\b")  # 'lap', '1 x Lap', and run-together '2lap', '5xLap'
+
+
 def label_distances(prescription, church=False):
     """Rep distances a label line mentions (anchor phrases removed), used to match reps to lines."""
     s = ANCHOR_SEG.sub(" ", prescription)
@@ -147,9 +150,9 @@ def label_distances(prescription, church=False):
         d = int(m.group(1))
         if 100 <= d <= 20000:
             out.add(float(d))
-    if re.search(r"\blaps?\b|church loop", s):
+    if LAP_RE.search(s) or "church loop" in s:
         out.add(float(CHURCH_LAP_M))
-        for m in re.finditer(r"(\d+)\s*laps?\b", s):
+        for m in re.finditer(r"(\d+)\s*laps?\b", s):  # '3 lap' / '2lap' = one rep that long; '5xLap' = five 1-lap reps
             out.add(float(CHURCH_LAP_M * int(m.group(1))))
     for m in re.finditer(r"(\d+(?:\.\d+)?)\s*(?:mi|miles?)\b", s):
         out.add(round(float(m.group(1)) * 1609.34))
