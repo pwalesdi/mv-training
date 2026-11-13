@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MV Training</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="#/calendar">MV Training <span class="proto">prototype · read-only</span></a>
+    <nav>
+      <a href="#/calendar" data-nav="calendar">Calendar</a>
+      <a href="#/workouts" data-nav="workouts">Workouts</a>
+      <a href="#/athletes" data-nav="athletes">Athletes</a>
+    </nav>
+    <div class="filter" role="group" aria-label="Athletes shown">
+      <button type="button" data-filter="varsity">Varsity</button>
+      <button type="button" data-filter="all">All athletes</button>
+    </div>
+  </header>
+  <main id="main" tabindex="-1"><p class="muted">Loading…</p></main>
+  <div id="tip" class="tip" hidden></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

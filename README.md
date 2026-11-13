@@ -26,6 +26,21 @@ python -m mvtrain.build                 # all seasons
 python -m mvtrain.build --seasons 2526  # one season
 ```
 
+## Calendar prototype (read-only)
+
+```
+.venv/bin/python -m app            # then open http://127.0.0.1:5050  (--port to change)
+```
+
+Reads `data/build/training.sqlite` (run the build first) and picks up a rebuild without a
+restart. It only ever binds to 127.0.0.1 - the data is student data. Views: team calendar
+(default; season picker, month grid, chips, double-threshold / church-loop / race markers),
+day view (every session and group with your label text, athletes x reps, targets, rest,
+group-timed splits), athlete view (history timeline with races and weekly mileage), and
+workouts by type (every session of a category/band, newest first). The Varsity / All
+athletes toggle applies everywhere; varsity = ran a varsity-level cross-country race that
+season (see `app/server.py`). Inferred types are dashed, italic and labelled "inferred".
+
 Updating during a season: save the current workbook into `data/workbooks/`
 (same file name pattern), drop any new Athletic.net exports into `data/races/`,
 and re-run. The build is from scratch every time and never edits the workbooks.
