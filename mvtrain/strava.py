@@ -77,8 +77,8 @@ def mark_long_runs(acts, weeks, min_miles):
     min_miles None: nothing is marked."""
     for a in acts:
         a["long_run"] = int(bool(a["longest_of_week"]) and min_miles is not None and (a["miles"] or 0) >= min_miles)
-    for w in weeks:
-        w["long_run"] = int(min_miles is not None and (w["longest_run_mi"] or 0) >= min_miles)
+    for w in weeks:  # a week with no run that has a distance has no longest run, so no long run either
+        w["long_run"] = int(min_miles is not None and w["longest_run_mi"] is not None and w["longest_run_mi"] >= min_miles)
 
 
 def load_fixes(path):
@@ -283,6 +283,7 @@ def _weeks(acts, windows):
             "longest_run_mi": longest["miles"] if longest else None, "longest_run_date": longest["date"] if longest else "",
             "longest_run_id": longest["activity_id"] if longest else "",
             "partial_week": int(bool(notes)), "week_note": "; ".join(notes),
+            "covered_from": max(start, w0).isoformat(), "covered_to": min(end, w1).isoformat(),
         })
     return out
 
@@ -341,11 +342,17 @@ def combine(weeks, export_rows, acts, windows, prefer="activities"):
                 diff = round(float(m["miles"]) - compare, 2)
         use_act = bool(w) and (not m or prefer != "export")
         src = w if use_act else m
+        if use_act:
+            cov = (w["covered_from"], w["covered_to"])
+        else:  # the days the export row covers: the whole week unless its note says otherwise
+            ed = days if days is not None else _export_days(m)
+            cov = (ed[0].isoformat(), ed[1].isoformat()) if ed else (m["week_start"], m["week_end"])
         rows.append({
             "athlete_id": key[0], "athlete_name": (w or m)["athlete_name"], "week_start": key[1],
             "week_end": src["week_end"], "season": season_of(key[1]),
             "run_miles": w["run_miles"] if use_act else float(m["miles"]), "source": "activities" if use_act else "export",
             "partial_week": int(bool(src["partial_week"])), "week_note": src["week_note"] or "",
+            "covered_from": cov[0], "covered_to": cov[1],
             "activity_run_miles": w["run_miles"] if w else None, "export_miles": float(m["miles"]) if m else None,
             "export_file": m["source_file"] if m else "", "compare_miles": compare, "export_minus_activities": diff,
             **{c: (w[c] if w else None) for c in ("n_runs", "runs_no_distance", "run_min_no_distance", "cross_min", "n_cross",
@@ -359,3 +366,71 @@ def combine(weeks, export_rows, acts, windows, prefer="activities"):
                                 f"Strava activities {compare:g} mi over the same days ({span}) - {rows[-1]['source']} shown "
                                 f"(rules/mileage.csv)", "mileage_sources_differ", season_of(key[1])))
     return rows, review
+
+
+def months(weeks, acts):
+    """athlete_months: run miles per calendar month, from the weekly series the app shows (athlete_weeks). A week
+    shown from Strava activities adds each run on its own date, so its miles land in the right month; a week shown
+    from the weekly export has only a weekly total, which is spread evenly over the days it covers (export_days
+    counts them - the month's number is approximate there). days_with_data: the month's days some week row covers.
+    partial: fewer than all of the month's days - month_note says why (the data starts or ends inside the month,
+    e.g. the month in progress, or weeks with no data). Cross-training minutes come from activities only."""
+    daily = defaultdict(lambda: [0.0, 0, 0, 0.0])  # (athlete, day) -> run miles, runs, runs without distance, cross min
+    for a in acts:
+        if a["athlete_id"] and a["counts_as"] in ("run", "cross"):
+            x = daily[(a["athlete_id"], a["date"])]
+            if a["counts_as"] == "run":
+                x[0] += a["miles"] or 0
+                x[1] += 1
+                x[2] += 0 if a["miles"] else 1
+            else:
+                x[3] += (a["moving_s"] or 0) / 60
+    by, first, last = {}, {}, {}
+    for w in weeks:
+        aid = w["athlete_id"]
+        s = dt.date.fromisoformat(w["week_start"])
+        f, t = dt.date.fromisoformat(w["covered_from"]), dt.date.fromisoformat(w["covered_to"])
+        first[aid], last[aid] = min(first.get(aid, f), f), max(last.get(aid, t), t)
+        for i in range(7):
+            d = s + dt.timedelta(days=i)
+            covered, x = f <= d <= t, daily.get((aid, d.isoformat())) if w["source"] == "activities" else None
+            if not covered and not x:
+                continue
+            m = by.setdefault((aid, f"{d.year}-{d.month:02d}"), {"name": w["athlete_name"], "run": 0.0, "n": 0, "nodist": 0,
+                                                                   "cross": 0.0, "act_days": 0, "days": set(), "export_days": 0})
+            if covered:
+                m["days"].add(d)
+            if w["source"] == "activities":
+                m["act_days"] += covered
+                if x:
+                    m["run"] += x[0]
+                    m["n"] += x[1]
+                    m["nodist"] += x[2]
+                    m["cross"] += x[3]
+            elif covered:
+                m["run"] += float(w["run_miles"]) / ((t - f).days + 1)
+                m["export_days"] += 1
+    out = []
+    for (aid, ym), m in sorted(by.items()):
+        y, mo = int(ym[:4]), int(ym[5:])
+        start = dt.date(y, mo, 1)
+        end = dt.date(y + mo // 12, mo % 12 + 1, 1) - dt.timedelta(days=1)
+        n_days = (end - start).days + 1
+        notes = []
+        if start < first[aid] <= end:
+            notes.append(f"data from {_day(first[aid])}")
+        if start <= last[aid] < end:
+            notes.append(f"data through {_day(last[aid])}")
+        lo, hi = max(start, first[aid]), min(end, last[aid])
+        gap = (hi - lo).days + 1 - sum(1 for d in m["days"] if lo <= d <= hi)
+        if gap > 0:
+            notes.append(f"no data for {gap} of the month's days")
+        out.append({
+            "athlete_id": aid, "athlete_name": m["name"], "month": ym, "month_start": start.isoformat(),
+            "month_end": end.isoformat(), "season": season_of(start), "run_miles": round(m["run"], 2),
+            "n_runs": m["n"] if m["act_days"] else None, "runs_no_distance": m["nodist"] if m["act_days"] else None,
+            "cross_min": round(m["cross"]) if m["act_days"] else None, "days_with_data": len(m["days"]),
+            "days_in_month": n_days, "export_days": m["export_days"], "partial": int(len(m["days"]) < n_days),
+            "month_note": "; ".join(notes),
+        })
+    return out

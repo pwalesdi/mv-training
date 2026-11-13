@@ -3,7 +3,8 @@
 Each XC result also gets xc_meet (the meet's name across years: no year, edition number or
 "(AKA ...)"; rules/xc_meets.csv merges names that changed otherwise) and xc_course (xc_meet +
 distance - only results with the same xc_course are the same course; a meet that changed its
-distance between years is a different course). duplicate_of marks a result Athletic.net posted
+distance between years is a different course, unless rules/xc_courses.csv names its distances as one
+course: then xc_course is shared and xc_course_name is that course's name). duplicate_of marks a result Athletic.net posted
 twice under two meet IDs (same athlete, kind, day, distance and time within 0.1 s): it holds the
 meet ID of the copy that is kept (the one with more decimals).
 
@@ -66,7 +67,34 @@ def meet_key(name):
     return re.sub(r"\bchampionships\b", "championship", k)
 
 
-def _courses(results, rules):
+def course_distance(s):
+    """'2.78 mi' / '2.78 Miles' / '5000 m' / '5,000 Meters' / '5k' -> meters; None without a unit."""
+    s = (s or "").lower().replace(",", "").strip()
+    for pat, factor in ((r"(\d+(?:\.\d+)?)\s*(?:mi|miles?)", 1609.34), (r"(\d+(?:\.\d+)?)\s*(?:m|meters?|metres?)", 1.0),
+                        (r"(\d+(?:\.\d+)?)\s*km?", 1000.0)):
+        m = re.fullmatch(pat, s)
+        if m:
+            return float(m.group(1)) * factor
+    return None
+
+
+def load_course_rules(rules_dir, meet_rules=()):
+    """rules/xc_courses.csv: meet,distance,course,note - results of `meet` (named as the build names it, or as
+    Athletic.net does) run at `distance` are the course `course`, whatever distance each year had."""
+    p = Path(rules_dir) / "xc_courses.csv" if rules_dir else None
+    if not p or not p.exists():
+        return []
+    out = []
+    with open(p) as fh:
+        for n, r in enumerate(csv.DictReader(fh), start=2):
+            r = {k: (v or "").strip() for k, v in r.items() if k}
+            if r.get("meet") or r.get("course"):
+                out.append({**r, "file_line": n, "used": False, "meters": course_distance(r.get("distance")),
+                            "meet_key": meet_key(xc_meet(r.get("meet", ""), meet_rules))})
+    return out
+
+
+def _courses(results, rules, courses=()):
     for r in results:
         r["xc_meet"] = xc_meet(r["meet_name"], rules) if r["kind"] == "XC" else ""
     newest = {}
@@ -76,6 +104,13 @@ def _courses(results, rules):
         if r["xc_meet"]:
             r["xc_meet"] = newest[meet_key(r["xc_meet"])]
         r["xc_course"] = f"{meet_key(r['xc_meet'])}|{round(r['distance_m'])}" if r["xc_meet"] and r["distance_m"] else ""
+        r["xc_course_name"] = ""
+        if r["xc_course"]:  # rules/xc_courses.csv: this meet's distances in different years are one course
+            c = next((c for c in courses if c["meters"] and c["course"] and c["meet_key"] == meet_key(r["xc_meet"])
+                      and abs(c["meters"] - r["distance_m"]) < 3), None)
+            if c:
+                c["used"] = True
+                r["xc_course"], r["xc_course_name"] = f"{meet_key(c['course'])}|course", c["course"]
 
 
 def _decimals(mark):
@@ -99,8 +134,9 @@ def _mark_duplicates(results):
                 kept.append(r)
 
 
-def load(race_dir, rules_dir=None):
-    """-> (results list, {athlete_id: name}, {normalised name: athlete_id})."""
+def load(race_dir, rules_dir=None, review=None):
+    """-> (results list, {athlete_id: name}, {normalised name: athlete_id}). review: a list that gets a
+    rule_unused item for each rules/xc_courses.csv row that can't be read or matches no result."""
     results, names = [], {}
     for f in sorted(Path(race_dir).glob("*.csv")):
         kind = "XC" if "_XC_" in f.name else "TF"
@@ -136,7 +172,16 @@ def load(race_dir, rules_dir=None):
                     "season_year": r["season_year"],
                     "source_url": r["source_url"],
                 })
-    _courses(results, load_meet_rules(rules_dir))
+    meet_rules = load_meet_rules(rules_dir)
+    courses = load_course_rules(rules_dir, meet_rules)
+    _courses(results, meet_rules, courses)
+    for c in courses:
+        why = ("needs meet, distance and course" if not (c.get("meet") and c.get("course") and c.get("distance")) else
+               f"can't read distance '{c['distance']}' (write e.g. 2.78 mi or 5000 m)" if not c["meters"] else
+               "matched no cross-country result" if not c["used"] else "")
+        if why and review is not None:
+            review.append({"issue": "rule_unused", "season": "", "tab": "", "block": "",
+                           "detail": f"rules/xc_courses.csv line {c['file_line']} ({c.get('meet', '')} {c.get('distance', '')}): {why}"})
     _mark_duplicates(results)
     by_name = {norm(n): aid for aid, n in names.items()}
     return results, names, by_name

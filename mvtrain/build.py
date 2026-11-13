@@ -200,9 +200,32 @@ def scrub_left_out(T, athletes):
 AT_CHECK_PCT = 117  # AT lines whose targets ran faster than this % of mile pace get flagged
 
 
+def rep_numbers(text):
+    """'1-6' -> {1, ..., 6}; '1 3 5 7', '1,3,5,7' or '1-3; 7' -> those reps. None when it can't be read."""
+    out = set()
+    for part in re.split(r"[\s,;]+", re.sub(r"\s*-\s*", "-", text.strip())):
+        m = re.fullmatch(r"(\d+)(?:-(\d+))?", part)
+        if not m or int(m.group(1)) < 1 or (m.group(2) and int(m.group(2)) < int(m.group(1))):
+            return None
+        out.update(range(int(m.group(1)), int(m.group(2) or m.group(1)) + 1))
+    return out or None
+
+
 def load_overrides():
+    """rules/line_overrides.csv -> (lines, reps).
+    lines: {(season, tab, block, line): row} - one label line, or (line blank) a whole unlabeled block.
+    reps: {(season, tab, block): [(rep numbers, row)]} - a row with `reps` ('1-6', '1 3 5 7') sets just those
+    rep columns of the group, labeled or not. Each row also gets file_line and used (set once it matches a group)."""
+    lines, reps = {}, defaultdict(list)
     with open(RULES / "line_overrides.csv") as fh:
-        return {(r["season"], r["tab"], r["block"], r["line"]): r for r in csv.DictReader(fh)}
+        for n, r in enumerate(csv.DictReader(fh), start=2):
+            r = {k: (v or "").strip() for k, v in r.items() if k}
+            r.update(file_line=n, used=False)
+            if r.get("reps"):
+                reps[(r["season"], r["tab"], r["block"])].append((rep_numbers(r["reps"]), r))
+            else:
+                lines[(r["season"], r["tab"], r["block"], r.get("line", ""))] = r
+    return lines, reps
 
 
 def load_tab_fixes():
@@ -283,15 +306,14 @@ def build(seasons=None, out_dir=None, mileage_dir=None, strava_dir=None):
     types = classify.load_types()
     aliases = load_aliases()
     athletes = AthleteRules(PRIVATE_RULES / "athletes.csv")
-    race_rows, id_names, by_name = races.load(DATA / "races", RULES)
-    fitness = races.Fitness(race_rows)
-    cutoffs = races.load_inference(RULES)
-    overrides = load_overrides()
-    tab_fixes = load_tab_fixes()
-    cell_fixes = load_cell_fixes()
-
     T = defaultdict(list)  # table name -> rows
     review = T["review"]
+    race_rows, id_names, by_name = races.load(DATA / "races", RULES, review)
+    fitness = races.Fitness(race_rows)
+    cutoffs = races.load_inference(RULES)
+    overrides, rep_overrides = load_overrides()
+    tab_fixes = load_tab_fixes()
+    cell_fixes = load_cell_fixes()
 
     books = sorted(DATA.joinpath("workbooks").glob("MV_Workouts.*.xlsx"))
     for book in books:
@@ -325,7 +347,11 @@ def build(seasons=None, out_dir=None, mileage_dir=None, strava_dir=None):
                     _rule_unused(review, season, ws.title, f"rules/tab_fixes.csv: from_tab '{fx['from_tab']}' isn't in {book.name}")
             fixes = _cell_fixes(ws, cell_fixes.get((season, ws.title), []), season, review)
             _do_sheet(ws, season, book.name, tab_dates[ws.title], types, aliases, athletes,
-                      by_name, id_names, fitness, cutoffs, overrides, T, copied_from, fixes)
+                      by_name, id_names, fitness, cutoffs, overrides, T, copied_from, fixes, rep_overrides)
+    for o in [*overrides.values(), *(o for rows in rep_overrides.values() for _, o in rows)]:
+        if not o["used"] and (not seasons or o["season"] in seasons):
+            _rule_unused(review, o["season"], o["tab"], f"rules/line_overrides.csv line {o['file_line']} (group {o['block']}"
+                                                        f"{', line ' + o['line'] if o.get('line') else ''}) matched nothing on that tab")
 
     _days(T)
     _dt_sessions(T)
@@ -341,6 +367,7 @@ def build(seasons=None, out_dir=None, mileage_dir=None, strava_dir=None):
     weekly, w_review = strava.combine(a_weeks, m_rows, acts, windows, settings.get("weekly_source_when_both", "activities"))
     T["activities"].extend(acts)
     T["athlete_weeks"].extend(weekly)
+    T["athlete_months"].extend(strava.months(weekly, acts))
     T["review"].extend(a_review + w_review)
     T["settings"].extend({"setting": k, "value": v} for k, v in settings.items())  # rules/mileage.csv, for the app
     for r in race_rows:
@@ -358,7 +385,7 @@ def build(seasons=None, out_dir=None, mileage_dir=None, strava_dir=None):
 
 
 def _do_sheet(ws, season, book, date, types, aliases, athletes, by_name, id_names, fitness, cutoffs, overrides, T,
-              copied_from=None, fixes=None):
+              copied_from=None, fixes=None, rep_overrides=None):
     review = T["review"]
     sheet_key = f"{season}|{ws.title}"
     meta, blocks = parse_sheet(ws, fixes)
@@ -396,9 +423,28 @@ def _do_sheet(ws, season, book, date, types, aliases, athletes, by_name, id_name
         for li, line in enumerate(lines):
             o = overrides.get((season, ws.title, str(b["block_no"]), str(li + 1)))
             if o:
+                o["used"] = True
                 line.update(workout_type=o["workout_type"] or line["workout_type"], band=o["band"],
                             type_rule="override", band_rule=f"override: {o['note']}")
         block_override = overrides.get((season, ws.title, str(b["block_no"]), ""))
+        if block_override:
+            block_override["used"] = True
+        # rows with `reps` set those rep columns (1 = the first rep column), whatever the label lines say
+        n_cols = max([len(b["distances"])] + [len(a["reps"]) for a in b["athletes"]])
+        rep_over = {}
+        for nums, o in (rep_overrides or {}).get((season, ws.title, str(b["block_no"])), []):
+            o["used"] = True
+            if nums is None:
+                _rule_unused(review, season, ws.title, f"rules/line_overrides.csv line {o['file_line']}: can't read reps "
+                                                       f"'{o['reps']}' (write e.g. 1-6 or 1 3 5 7) - not applied")
+                continue
+            if max(nums) > n_cols:
+                _rule_unused(review, season, ws.title, f"rules/line_overrides.csv line {o['file_line']}: group {b['block_no']} has "
+                                                       f"{n_cols} rep columns, so reps {o['reps']} don't all exist")
+            rep_over.update((n, o) for n in nums)
+
+        def by_rule(rep_no):  # this rep's type comes from rules/line_overrides.csv, not from a label or its pace
+            return rep_no in rep_over or bool(block_override)
 
         # athletes. Excluded athletes (data/rules/athletes.csv) still count for what describes the group - its
         # fitness for inference, shared splits, the AT check - so leaving someone out never changes anyone
@@ -421,23 +467,28 @@ def _do_sheet(ws, season, book, date, types, aliases, athletes, by_name, id_name
         miles = [m for m in athlete_mile.values() if m]
         group_mile = statistics.median(miles) if miles else None
 
-        def infer(d, t, mile):
+        def infer(d, t, mile, rep_no=None):
             pct = races.pct_of_mile(t, d, mile)
-            if block_override:
-                return block_override["workout_type"], block_override["band"], pct
+            o = rep_over.get(rep_no) or block_override
+            if o:
+                return o["workout_type"], o["band"], pct
             wt, band = races.type_from_pct(pct, d, cutoffs)
             return wt, band, pct
 
         inferred = [("", "", None)] * len(b["distances"])
+        all_by_rule = bool(b["distances"]) and all(by_rule(i + 1) for i in range(len(b["distances"])))
         if not lines:
-            inferred = [infer(d, t, group_mile) for d, t in zip(b["distances"], b["targets"])]
-            reason = "no label lines on block"
-            if group_mile is None:
-                reason += "; no race marks for these athletes, so no inference"
-            elif not any(b["targets"]):
-                reason += "; no target times, so no inference"
-            review.append({"issue": "unlabeled_block", "season": season, "tab": ws.title, "block": b["block_no"],
-                           "detail": reason + ". Inferred: " + ", ".join(sorted({f"{w}{'/'+bd if bd else ''}" for w, bd, _ in inferred if w})) })
+            inferred = [infer(d, t, group_mile, i + 1) for i, (d, t) in enumerate(zip(b["distances"], b["targets"]))]
+            left = [x for i, x in enumerate(inferred) if not by_rule(i + 1)]
+            if left or not b["distances"]:  # a group whose every rep is set in rules/line_overrides.csv needs no review
+                reason = "no label lines on block"
+                if group_mile is None:
+                    reason += "; no race marks for these athletes, so no inference"
+                elif not any(b["targets"]):
+                    reason += "; no target times, so no inference"
+                review.append({"issue": "unlabeled_block", "season": season, "tab": ws.title, "block": b["block_no"],
+                               "detail": reason + ". Inferred: " + ", ".join(sorted({f"{w}{'/'+bd if bd else ''}" for w, bd, _ in left if w}))
+                               + (" (the other reps are set in rules/line_overrides.csv)" if len(left) < len(inferred) else "")})
 
         # block row
         chip_types = []
@@ -457,13 +508,15 @@ def _do_sheet(ws, season, book, date, types, aliases, athletes, by_name, id_name
                                "detail": f"{line['band_rule']}: {line['label_raw']}"})
         if not lines:
             chip_types = [(w, bd) for w, bd, _ in inferred if w]
-        guesses = sum(1 for _, how in assign if how == "guess")
+        else:  # a labeled group: rep columns set by a rule add their own types
+            chip_types += [(rep_over[n]["workout_type"], rep_over[n]["band"]) for n in sorted(rep_over)]
+        guesses = sum(1 for i, (_, how) in enumerate(assign) if how == "guess" and (i + 1) not in rep_over)
         if guesses:
             review.append({"issue": "rep_to_label_guess", "season": season, "tab": ws.title, "block": b["block_no"],
                            "detail": f"{guesses} of {len(assign)} reps aren't mentioned by any label line; "
                                      f"typed from target pace (type_source=inferred)"})
 
-        type_source = "sheet" if lines else ("override" if block_override else
+        type_source = "sheet" if lines else ("override" if block_override or all_by_rule else
                                              ("inferred" if any(w for w, _, _ in inferred) else "none"))
         T["blocks"].append({
             "block_key": bkey, "sheet_key": sheet_key, "season": season, "date": date.isoformat(),
@@ -504,11 +557,12 @@ def _do_sheet(ws, season, book, date, types, aliases, athletes, by_name, id_name
                     li, how_assigned = (len(lines) - 1, "variant row") if lines else (None, "")
                 # a rep no label line mentions is typed from its target pace, not from the line above it (Patrick)
                 unmentioned = how_assigned == "guess"
-                line = lines[li] if li is not None and lines and not unmentioned else None
+                ro = rep_over.get(ri + 1)  # rules/line_overrides.csv set this rep column: wins over its label line
+                line = lines[li] if li is not None and lines and not unmentioned and not ro else None
                 own_mile = athlete_mile.get(aid) or group_mile
                 pct = races.pct_of_mile(tgt, d, own_mile)  # reported per athlete
                 # inference is per rep, from the block's group fitness: same rep, same type for everyone (Patrick)
-                inf = infer(d, tgt, group_mile) if not line else ("", "", None)
+                inf = infer(d, tgt, group_mile, ri + 1) if not line else ("", "", None)
                 wtype = line["workout_type"] if line else inf[0]
                 band = line["band"] if line else inf[1]
                 # no target / no race marks: take the line above rather than leave it untyped - still inferred
@@ -528,10 +582,10 @@ def _do_sheet(ws, season, book, date, types, aliases, athletes, by_name, id_name
                     "status": status_, "raw": raw if status_ != "timed" else "",
                     "rest_after": rest_raw, "rest_after_s": rest_s,
                     "label_line": (li + 1) if line else "",
-                    "label_match": how_assigned if line else (
+                    "label_match": how_assigned if line else "rules/line_overrides.csv" if ro else (
                         (f"not in any label; type from line {li + 1}" if fallback else "not in any label") if unmentioned else ""),
                     "workout_type": wtype, "band": band,
-                    "type_source": "sheet" if line else (("override" if block_override else "inferred") if wtype else ""),
+                    "type_source": "sheet" if line else (("override" if ro or block_override else "inferred") if wtype else ""),
                     "target_pct_of_mile": round(pct, 1) if pct else None,
                     "mile_ref_s": round(own_mile, 1) if own_mile else None,
                     "shared_split": int((ri, d, secs) in shared) if status_ == "timed" else 0,
@@ -548,7 +602,7 @@ def _do_sheet(ws, season, book, date, types, aliases, athletes, by_name, id_name
                 review.append({"issue": "at_looks_anaerobic", "season": season, "tab": ws.title, "block": b["block_no"],
                                "detail": f"line {li+1} '{line['label_raw']}' is classed DT (AT = aerobic), but its targets ran "
                                          f"{statistics.median(v):.0f}% of mile pace, closer to LT/anaerobic. To re-label: "
-                                         f"rules/line_overrides.csv -> {season},{ws.title},{b['block_no']},{li+1},threshold,LT"})
+                                         f"rules/line_overrides.csv -> {season},{ws.title},{b['block_no']},{li+1},,threshold,LT"})
 
 
 def _days(T):

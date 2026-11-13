@@ -143,7 +143,8 @@ the export covers, so a week it only partly covers is marked partial.
   and their minutes, cross-training minutes by sport, and the week's longest run (also flagged on
   the activity, `longest_of_week`). A week with no activity has no row - it's no data, not 0.
 - Long run: the week's longest run when it is at least `long_run_min_miles` miles
-  (`rules/mileage.csv`; blank = none marked) - `long_run` on the activity and the week.
+  (`rules/mileage.csv`; 0 = every week's longest run, as now; blank = none marked) - `long_run` on
+  the activity and the week.
 - Where a week is also in the weekly export, both numbers are kept; a difference of more than a
   mile over the same days goes to review.csv (`mileage_sources_differ`).
 
@@ -159,10 +160,11 @@ the export covers, so a week it only partly covers is marked partial.
 | `prescriptions` | label line ("Threshold Intervals: 5 x Lap @ 20k RP"): type, anchor, band |
 | `athlete_blocks` | athlete in a block: Athletic.net ID, cooldown, total volume, notes |
 | `reps` | athlete x rep: distance, target, actual, status, type/band, shared-split flag |
-| `races` | Athletic.net result. XC results also carry `xc_meet` (the meet across years) and `xc_course` (meet + distance: the same course); `duplicate_of` marks a result Athletic.net posted twice |
+| `races` | Athletic.net result. XC results also carry `xc_meet` (the meet across years) and `xc_course` (meet + distance: the same course - or, from `rules/xc_courses.csv`, one course across distances, named in `xc_course_name`); `duplicate_of` marks a result Athletic.net posted twice |
 | `weekly_mileage` | athlete x week from the weekly exports (`data/mileage/`): miles, partial-week flag |
 | `activities` | Strava activity: date, sport, what it counts as (run / cross / other / excluded), miles, moving time, pace, longest run of its week, any fix or check |
-| `athlete_weeks` | athlete x week the Mileage tab shows: run miles and their source (activities / export, both kept), runs, runs with no distance, cross-training minutes, longest run, partial-week flag |
+| `athlete_weeks` | athlete x week the Mileage tab shows: run miles and their source (activities / export, both kept), runs, runs with no distance, cross-training minutes, longest run, partial-week flag, the days the data covers (`covered_from` / `covered_to`) |
+| `athlete_months` | athlete x calendar month, from `athlete_weeks`: run miles (each run on its own date; a weekly-export week spread evenly over its days - `export_days`), runs, cross-training minutes, days with data, `partial` + `month_note` when the data doesn't cover the whole month |
 | `review` | anything the parser couldn't settle - read this after each run |
 
 ## Rules that came from Patrick

@@ -1,8 +1,14 @@
-season,tab,block,line,workout_type,band,note
-2526,1-13 (2),1,1,threshold,DT,confirmed by Patrick: AT = aerobic threshold
-2526,1-13 (2),2,1,threshold,DT,confirmed by Patrick: AT = aerobic threshold
-2526,4-21,1,4,threshold,DT,confirmed by Patrick: AT = aerobic threshold
-2425,2-18,2,1,threshold,DT,confirmed by Patrick: HM -> 5k lap progression is DT
-2627,9-1,4,1,threshold,LT,labels swapped on sheet - confirmed by Patrick
-2627,9-1,4,2,threshold,DT,labels swapped on sheet - confirmed by Patrick
-2627,9-22,2,2,aerobic_power,,confirmed by Patrick
+season,tab,block,line,reps,workout_type,band,note
+2526,1-13 (2),1,1,,threshold,DT,confirmed by Patrick: AT = aerobic threshold
+2526,1-13 (2),2,1,,threshold,DT,confirmed by Patrick: AT = aerobic threshold
+2526,4-21,1,4,,threshold,DT,confirmed by Patrick: AT = aerobic threshold
+2425,2-18,2,1,,threshold,DT,confirmed by Patrick: HM -> 5k lap progression is DT
+2627,9-1,4,1,,threshold,LT,labels swapped on sheet - confirmed by Patrick
+2627,9-1,4,2,,threshold,DT,labels swapped on sheet - confirmed by Patrick
+2627,9-22,2,2,,aerobic_power,,confirmed by Patrick
+2627,9-24 (2),3,,1-6,threshold,LT,"confirmed by Patrick (2026-11-13): unlabeled PM group - the 1000s and 600s are threshold / LT (3x1000, 3x600)"
+2627,9-24 (2),3,,7-9,speed_endurance,,confirmed by Patrick (2026-11-13): unlabeled PM group - the 300s and 400s are speed endurance (3x300)
+2627,9-24 (2),4,,1-5,threshold,LT,"confirmed by Patrick (2026-11-13): unlabeled PM group - the 1000s and 600s are threshold / LT (3x1000, 2x600)"
+2627,9-24 (2),4,,6-7,speed_endurance,,confirmed by Patrick (2026-11-13): unlabeled PM group - the 300s and 400s are speed endurance (2x400)
+2627,9-24 (2),5,,1-5,threshold,LT,"confirmed by Patrick (2026-11-13): unlabeled PM group - the 1000s and 600s are threshold / LT (4x1000, 600)"
+2627,9-24 (2),5,,6,speed_endurance,,confirmed by Patrick (2026-11-13): unlabeled PM group - the 300s and 400s are speed endurance (300)
