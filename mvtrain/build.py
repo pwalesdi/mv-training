@@ -53,6 +53,7 @@ class AthleteRules:
     def __init__(self, path):
         self.by_id, self.by_name, self.lines, self.used = defaultdict(list), defaultdict(list), [], set()
         self.known, self.left_out = set(), defaultdict(set)  # names seen on sheets; left out, by season ('' = all)
+        self.ids_left_out = defaultdict(set)  # Athletic.net IDs of athletes left out on the sheets, by season ('' = all)
         self.listed_as = defaultdict(dict)  # current / historical row line -> {app key: (athlete_id, name shown)}
         with open(path) as fh:
             for line, r in enumerate(csv.DictReader(fh), start=2):
@@ -131,15 +132,22 @@ class AthleteRules:
         return rows[0].get("status", "") if rows else ""
 
     def excluded(self, season, athlete_id="", names=()):
+        """For races and Strava weeks (after every sheet is read): also true for the Athletic.net ID of an athlete a
+        workbook-name row leaves out - e.g. once a new race export matches their name to an ID."""
+        if athlete_id and (athlete_id in self.ids_left_out[""] or athlete_id in self.ids_left_out[season]):
+            return True
         return self.status(season, athlete_id, names) == "exclude"
 
     def seen(self, season, status, athlete_id, names):
-        """Note an athlete's names as written on a sheet, and whether they're left out (for scrub_left_out)."""
+        """Note an athlete's names as written on a sheet, and whether they're left out (for scrub_left_out) - with
+        the Athletic.net ID their name matches, so a workbook-name row leaves out their races and Strava weeks too."""
         self.known |= set(names)
         if status == "exclude":
             everywhere = any(r.get("status") == "exclude" and not r.get("season")
                              for r in self._rows(season, athlete_id, names))
             self.left_out["" if everywhere else season] |= set(names)
+            if athlete_id:
+                self.ids_left_out["" if everywhere else season].add(athlete_id)
 
     def add_rule_names(self, id_names, aliases):
         """Left-out names from the rows themselves: the Athletic.net name and every alias of a left-out ID."""
@@ -151,6 +159,9 @@ class AthleteRules:
                 aid = r.get("athlete_id")
                 names = [r.get("workbook_name", "")] + ([id_names.get(aid, "")] + spellings[aid] if aid else [])
                 self.left_out[r.get("season", "")] |= {n for n in names if n}
+        for scope, ids in self.ids_left_out.items():  # IDs a workbook-name row reached through the sheets
+            for aid in ids:
+                self.left_out[scope] |= {n for n in [id_names.get(aid, "")] + spellings[aid] if n}
 
     def left_out_in(self, season):
         return self.left_out[""] | self.left_out[season]
@@ -359,7 +370,7 @@ def resolve(name, aliases, by_name, id_names, plain=False):
     return "", name, "unmatched"
 
 
-def build(seasons=None, out_dir=None, mileage_dir=None, strava_dir=None):
+def build(seasons=None, out_dir=None, mileage_dir=None, strava_dir=None, races_dir=None):
     out_dir = Path(out_dir or DATA / "build")
     out_dir.mkdir(parents=True, exist_ok=True)
     types = classify.load_types()
@@ -367,7 +378,7 @@ def build(seasons=None, out_dir=None, mileage_dir=None, strava_dir=None):
     athletes = AthleteRules(PRIVATE_RULES / "athletes.csv")
     T = defaultdict(list)  # table name -> rows
     review = T["review"]
-    race_rows, id_names, by_name = races.load(DATA / "races", RULES, review)
+    race_rows, id_names, by_name = races.load(Path(races_dir or DATA / "races"), RULES, review)
     fitness = races.Fitness(race_rows)
     cutoffs = races.load_inference(RULES)
     overrides, rep_overrides = load_overrides()
@@ -768,8 +779,9 @@ def main():
     ap.add_argument("--out", help="output folder (default data/build)")
     ap.add_argument("--mileage", help="folder of Strava weekly-mileage CSVs (default data/mileage)")
     ap.add_argument("--strava", help="folder of Strava activity CSVs (default data/strava)")
+    ap.add_argument("--races", help="folder of Athletic.net result CSVs (default data/races)")
     args = ap.parse_args()
-    T = build(set(args.seasons) if args.seasons else None, args.out, args.mileage, args.strava)
+    T = build(set(args.seasons) if args.seasons else None, args.out, args.mileage, args.strava, args.races)
     print(f"sheets {len(T['sheets'])}  blocks {len(T['blocks'])}  athlete-blocks {len(T['athlete_blocks'])}  "
           f"reps {len(T['reps'])}  days {len(T['days'])}  activities {len(T['activities'])}  review items {len(T['review'])}")
     for issue, n in Counter(r["issue"] for r in T["review"]).most_common():

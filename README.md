@@ -25,6 +25,7 @@ data/        NOT in git - workbooks, race CSVs, and the built database
 pip install -r requirements.txt
 python -m mvtrain.build                 # all seasons
 python -m mvtrain.build --seasons 2526  # one season
+python -m mvtrain.build --races other/folder --out other/build   # other Athletic.net exports, to a test build
 ```
 
 ## Calendar prototype (read-only)
@@ -103,12 +104,13 @@ Athlete page:
 
 Leaving athletes out: add a row to `data/rules/athletes.csv` with `status=exclude` (by Athletic.net
 ID, or by workbook name for an athlete with no match; a blank season = every season) and re-run.
-Their workouts, races and Strava weeks drop out of the build and the app; the workbooks and race
+Their workouts, races and Strava weeks drop out of the build and the app - a workbook-name row
+also covers the Athletic.net ID that name matches once a race export brings one in; the workbooks and race
 files are untouched, and nobody else's rows change. Details in `rules/README.md`.
 
 Updating during a season: save the current workbook into `data/workbooks/`
 (same file name pattern), drop any new Athletic.net exports into `data/races/`,
-and re-run. The build is from scratch every time and never edits the workbooks.
+and re-run (`rules/race_files.csv` can leave an export out until it's checked). The build is from scratch every time and never edits the workbooks.
 
 ## Weekly mileage files (`data/mileage/`)
 
@@ -188,7 +190,7 @@ the export covers, so a week it only partly covers is marked partial.
 | `prescriptions` | label line ("Threshold Intervals: 5 x Lap @ 20k RP"): type, anchor, band |
 | `athlete_blocks` | athlete in a block: Athletic.net ID, cooldown, total volume, notes |
 | `reps` | athlete x rep: distance, target, actual, status, type/band, shared-split flag; `type_note` when an inferred type was changed by a rule (the church-loop cap in `rules/venues.csv`) |
-| `races` | Athletic.net result. XC results also carry `xc_meet` (the meet across years) and `xc_course` (meet + distance: the same course - or, from `rules/xc_courses.csv`, one course across distances, named in `xc_course_name`); `duplicate_of` marks a result Athletic.net posted twice |
+| `races` | Athletic.net result: `season` = the school year from the meet date (July-June; Athletic.net's own `season_year` is kept but not used), `export_kind` = the export it came from, `kind_rule` = the `rules/race_kinds.csv` line that set its kind (Mid-Season Mania is track), `unofficial` = 1 where an export marks it unofficial; track events are named from their distance the same way for every export (`1,600 Meters`). XC results also carry `xc_meet` (the meet across years) and `xc_course` (meet + distance: the same course - or, from `rules/xc_courses.csv`, one course across distances, named in `xc_course_name`); `duplicate_of` marks a result Athletic.net posted twice, or the second copy of a race a `rules/race_kinds.csv` meet has in both exports - the app shows each race once |
 | `weekly_mileage` | athlete x week from the weekly exports (`data/mileage/`): miles, partial-week flag |
 | `activities` | Strava activity: date, sport, what it counts as (run / cross / other / excluded), miles, moving time, pace, longest run of its week, any fix or check |
 | `athlete_weeks` | athlete x week the Mileage tab shows: run miles and their source (activities / export, both kept), runs, runs with no distance, cross-training minutes, longest run, partial-week flag, the days the data covers (`covered_from` / `covered_to`) |
@@ -206,6 +208,9 @@ the export covers, so a week it only partly covers is marked partial.
   becomes threshold / LT there (`rules/venues.csv`; the rep's `type_note` says so). Your own labels
   are never changed - one that comes out lactate resistance or faster is listed in review.csv
   (`venue_cap_label`) with the override row to paste if you want to change it.
+- **Mid-Season Mania is a track meet** (1600 / 3200, run in October): every result is a track
+  result, whichever Athletic.net export it's in (`rules/race_kinds.csv`), counted in the school
+  year of its date - so it's in the track PRs and on no XC chart or course card.
 - **Double threshold day** = a 2025-26+ day with Session 1 and Session 2.
 - A rep belongs to a label line that states its distance, within ~2% (2.0 miles = the
   3200 column). A continuous line ("2.0 miles continuous", "3 Lap Threshold Run",

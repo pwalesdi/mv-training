@@ -8,6 +8,15 @@ course: then xc_course is shared and xc_course_name is that course's name). dupl
 twice under two meet IDs (same athlete, kind, day, distance and time within 0.1 s): it holds the
 meet ID of the copy that is kept (the one with more decimals).
 
+rules/race_kinds.csv makes every result of a meet one kind, whichever export it is in (Mid-Season Mania: a
+track meet run in October that Athletic.net also posts as cross country). export_kind is the export a row
+came from, kind_rule the rule line that set its kind. For a meet a rule names, each athlete's race is kept
+once: the copy from the export of its kind, else one with a time - the others get duplicate_of. Track events
+are named from their distance, the same way for every export ('1600 Meters' and '1,600 Meters' are both
+'1,600 Meters'). season is the school year from the meet date (July-June: an October race is in that fall's
+school year); Athletic.net's own season_year is kept as written but not used. unofficial is 1 where an export
+marks a result unofficial (a column named like unofficial / official), else blank.
+
 The fitness reference is each athlete's best 1600 m *equivalent* (Riegel,
 exponent 1.06) from races in the 365 days before a date. Unlabeled blocks get
 a likely workout type from the target pace expressed as a % of that mile
@@ -35,6 +44,69 @@ def _distance_m(s):
     if m:
         return float(m.group(1)) * 1000
     return None
+
+
+def school_season(d):
+    """date -> '2425' (school years run July-June)."""
+    start = d.year if d.month >= 7 else d.year - 1
+    return f"{start % 100:02d}{(start + 1) % 100:02d}"
+
+
+METERS = re.compile(r"\s*(\d[\d,]*)\s*(?:meters?|m)\s*", re.I)
+
+
+def track_event(raw):
+    """A track event named from its distance, one way for every export: '1600 Meters' / '1,600 Meters' -> '1,600 Meters'."""
+    m = METERS.fullmatch(raw or "")
+    return f"{int(m.group(1).replace(',', '')):,} Meters" if m else raw
+
+
+def _unofficial(row):
+    """1 where the export marks the result unofficial (a column named like 'unofficial', or 'official' = no), else ''."""
+    for k, v in row.items():
+        name, v = (k or "").strip().lower(), (v or "").strip().lower()
+        if "unofficial" in name and v in ("1", "true", "yes", "y", "x", "u", "unofficial"):
+            return 1
+        if "official" in name and "unofficial" not in name and v in ("0", "false", "no", "n", "unofficial"):
+            return 1
+    return ""
+
+
+def load_kind_rules(rules_dir):
+    """rules/race_kinds.csv: meet_contains,kind,note - a result whose meet name contains `meet_contains` (any case)
+    is `kind` (TF = track, XC = cross country), whichever export it is in."""
+    p = Path(rules_dir) / "race_kinds.csv" if rules_dir else None
+    if not p or not p.exists():
+        return []
+    out = []
+    with open(p) as fh:
+        for n, r in enumerate(csv.DictReader(fh), start=2):
+            r = {k: (v or "").strip() for k, v in r.items() if k}
+            if r.get("meet_contains") or r.get("kind"):
+                out.append({**r, "file_line": n, "used": False})
+    return out
+
+
+def _apply_kind_rules(results, rules):
+    for r in results:
+        low = r["meet_name"].lower()
+        rule = next((k for k in rules if k.get("meet_contains") and k.get("kind") in ("TF", "XC")
+                     and k["meet_contains"].lower() in low), None)
+        if rule:
+            rule["used"] = True
+            r["kind"], r["kind_rule"] = rule["kind"], f"rules/race_kinds.csv line {rule['file_line']}"
+        if r["kind"] == "TF":
+            r["event"] = track_event(r["event"])
+
+
+def load_file_rules(rules_dir):
+    """rules/race_files.csv: file,action,note - action=skip leaves that export in data/races out of the build."""
+    p = Path(rules_dir) / "race_files.csv" if rules_dir else None
+    if not p or not p.exists():
+        return {}
+    with open(p) as fh:
+        return {r["file"].strip(): {**{k: (v or "").strip() for k, v in r.items() if k}, "file_line": n}
+                for n, r in enumerate(csv.DictReader(fh), start=2) if (r.get("file") or "").strip()}
 
 
 def load_meet_rules(rules_dir):
@@ -125,8 +197,8 @@ def _mark_duplicates(results):
         if r["seconds"] and r["distance_m"]:
             groups[(r["kind"], r["athlete_id"], r["date"], round(r["distance_m"]))].append(r)
     for rows in groups.values():
-        kept = []
-        for r in sorted(rows, key=lambda r: (-_decimals(r["mark"]), r["meet_id"])):
+        kept = []  # the copy from the export of its kind first (rules/race_kinds.csv), then the one with more decimals
+        for r in sorted(rows, key=lambda r: (r["export_kind"] != r["kind"], -_decimals(r["mark"]), r["meet_id"])):
             twin = next((k for k in kept if k["meet_id"] != r["meet_id"] and abs(k["seconds"] - r["seconds"]) <= 0.1), None)
             if twin:
                 r["duplicate_of"] = twin["meet_id"]
@@ -134,11 +206,50 @@ def _mark_duplicates(results):
                 kept.append(r)
 
 
+def _one_per_race(results, review=None):
+    """A meet rules/race_kinds.csv names can be in both exports: keep each athlete's race once - the copy from the
+    export of its kind, then one with a time, then more decimals; the other copies get duplicate_of (also a DNS /
+    DNF, which _mark_duplicates leaves alone). Copies whose times disagree go to review."""
+    groups = defaultdict(list)
+    for r in results:
+        if r.get("kind_rule") and not r["duplicate_of"]:
+            groups[(r["kind"], r["athlete_id"], r["date"], round(r["distance_m"] or 0))].append(r)
+    for rows in groups.values():
+        rows.sort(key=lambda r: (r["export_kind"] != r["kind"], not r["seconds"], -_decimals(r["mark"]), r["meet_id"]))
+        keep = rows[0]
+        for r in rows[1:]:
+            if r["meet_id"] == keep["meet_id"]:
+                continue  # the same meet twice in one export (a prelim and a final): not a copy
+            r["duplicate_of"] = keep["meet_id"]
+            differ = bool(r["seconds"]) != bool(keep["seconds"]) or (r["seconds"] and abs(r["seconds"] - keep["seconds"]) > 0.1)
+            if differ and review is not None:
+                review.append({"issue": "race_copies_differ", "season": keep["season"], "tab": "", "block": "",
+                               "detail": f"athlete {keep['athlete_id']}, {keep['date'].isoformat()} {keep['meet_name']} {keep['event']}: "
+                                         f"the {keep['export_kind']} export's {keep['mark'] or 'no mark'} (meet {keep['meet_id']}) is kept, "
+                                         f"the {r['export_kind']} export's {r['mark'] or 'no mark'} (meet {r['meet_id']}) left out"})
+
+
 def load(race_dir, rules_dir=None, review=None):
     """-> (results list, {athlete_id: name}, {normalised name: athlete_id}). review: a list that gets a
     rule_unused item for each rules/xc_courses.csv row that can't be read or matches no result."""
     results, names = [], {}
+    files = load_file_rules(rules_dir)
+    present = {f.name for f in Path(race_dir).glob("*.csv")}
+    for name, fr in files.items():
+        if review is None:
+            continue
+        if name not in present:
+            review.append({"issue": "rule_unused", "season": "", "tab": "", "block": "",
+                           "detail": f"rules/race_files.csv line {fr['file_line']}: {name} isn't in the races folder"})
+        elif fr.get("action") == "skip":
+            review.append({"issue": "race_file_left_out", "season": "", "tab": "", "block": "",
+                           "detail": f"rules/race_files.csv line {fr['file_line']}: {name} is left out of the build - {fr.get('note', '')}"})
+        else:
+            review.append({"issue": "rule_unused", "season": "", "tab": "", "block": "",
+                           "detail": f"rules/race_files.csv line {fr['file_line']}: action '{fr.get('action', '')}' isn't skip - not used"})
     for f in sorted(Path(race_dir).glob("*.csv")):
+        if files.get(f.name, {}).get("action") == "skip":
+            continue
         kind = "XC" if "_XC_" in f.name else "TF"
         with open(f) as fh:
             for r in csv.DictReader(fh):
@@ -154,13 +265,16 @@ def load(race_dir, rules_dir=None, review=None):
                     secs = float(secs)
                 except (TypeError, ValueError):
                     secs = None
+                date = dt.date.fromisoformat(r["meet_date"])
                 results.append({
                     "kind": kind,
+                    "export_kind": kind,
+                    "kind_rule": "",
                     "athlete_id": aid,
                     "athlete_name": r["athlete_name"],
                     "gender": r["gender"],
                     "grade": r["grade"],
-                    "date": dt.date.fromisoformat(r["meet_date"]),
+                    "date": date,
                     "meet_name": r["meet_name"],
                     "meet_id": r["meet_id"],
                     "event": event,
@@ -169,9 +283,13 @@ def load(race_dir, rules_dir=None, review=None):
                     "seconds": secs,
                     "mark": r.get("time") or r.get("mark", ""),
                     "place": r["place"],
+                    "unofficial": _unofficial(r),
+                    "season": school_season(date),
                     "season_year": r["season_year"],
                     "source_url": r["source_url"],
                 })
+    kind_rules = load_kind_rules(rules_dir)
+    _apply_kind_rules(results, kind_rules)  # before _courses: a result a rule makes track is on no XC course
     meet_rules = load_meet_rules(rules_dir)
     courses = load_course_rules(rules_dir, meet_rules)
     _courses(results, meet_rules, courses)
@@ -182,7 +300,15 @@ def load(race_dir, rules_dir=None, review=None):
         if why and review is not None:
             review.append({"issue": "rule_unused", "season": "", "tab": "", "block": "",
                            "detail": f"rules/xc_courses.csv line {c['file_line']} ({c.get('meet', '')} {c.get('distance', '')}): {why}"})
+    for k in kind_rules:
+        why = ("needs meet_contains and kind" if not (k.get("meet_contains") and k.get("kind")) else
+               f"kind '{k['kind']}' isn't TF or XC" if k["kind"] not in ("TF", "XC") else
+               "matched no result" if not k["used"] else "")
+        if why and review is not None:
+            review.append({"issue": "rule_unused", "season": "", "tab": "", "block": "",
+                           "detail": f"rules/race_kinds.csv line {k['file_line']} ({k.get('meet_contains', '')}): {why}"})
     _mark_duplicates(results)
+    _one_per_race(results, review)
     by_name = {norm(n): aid for aid, n in names.items()}
     return results, names, by_name
 

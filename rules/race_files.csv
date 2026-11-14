@@ -1,0 +1,5 @@
+file,action,note
+MV_TF_800-1600-3200_2019-2021_boys.csv,skip,"Patrick (2026-11-13): the new Athletic.net pull (track 2019-21, XC 2018-20) stays out of the build for now - it brings 109 athletes who aren't on the keep list (data/reports/new-pull-athletes-2026-11-13.csv); delete these rows once that's decided"
+MV_TF_800-1600-3200_2019-2021_girls.csv,skip,"Patrick (2026-11-13): new Athletic.net pull - left out for now, see the first row"
+MV_XC_2018-2020_boys.csv,skip,"Patrick (2026-11-13): new Athletic.net pull - left out for now, see the first row"
+MV_XC_2018-2020_girls.csv,skip,"Patrick (2026-11-13): new Athletic.net pull - left out for now, see the first row"

@@ -118,8 +118,9 @@ def same_result(a, b):
 
 
 def distinct_races(rows):
-    """Each race once, for calendars and race lists. Some results are in both the XC and the track export
-    (Mid-Season Mania); the first copy is kept and remembers the other kind in 'also'."""
+    """Each race once, for calendars and race lists. A result in both the XC and the track export under the same
+    kind is marked duplicate_of by the build (rules/race_kinds.csv: Mid-Season Mania is track); one still listed
+    under both kinds keeps its first copy, which remembers the other kind in 'also'."""
     out = []
     for r in rows:
         twin = next((o for o in out if o["kind"] != r["kind"] and same_result(o, r)), None)
