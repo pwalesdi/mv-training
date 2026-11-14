@@ -324,7 +324,7 @@ async function viewAthletes(q) {
   const tab = (id, label) => `<button type="button" role="tab" data-list="${id}" aria-selected="${id === list}">${label} <span class="count" id="n-${id}"></span></button>`;
   main.innerHTML = `<div class="bar"><h1>Athletes</h1><div class="seg" role="tablist" aria-label="Which athletes">${tab('current', 'Current')}${tab('historical', 'Historical')}</div>
     <input type="search" id="q" placeholder="Search current and historical" aria-label="Search athletes by name" value="${esc(q.get('q') || '')}"></div>
-    <p class="muted small">Current = on a ${esc(csLabel)} workout sheet or raced for MV in ${esc(csLabel)} (since July 1, 20${esc(cs.slice(0, 2))}). Historical = everyone else. Click a name for that athlete’s calendar, history, mileage and races.</p>
+    <p class="muted small">Current = on a ${esc(csLabel)} workout sheet or raced for MV in ${esc(csLabel)} (since July 1, 20${esc(cs.slice(0, 2))}). Historical = everyone else. A row in data/rules/athletes.csv with status=current or historical puts an athlete on that list instead (marked “your rule”). Click a name for that athlete’s calendar, history, mileage and races.</p>
     <table class="list athletes"><thead><tr><th>Name</th><th>Seasons (workout sheets, races or Strava)</th><th class="num">Workout groups</th><th class="num">Races</th><th>Strava</th></tr></thead><tbody id="rows"></tbody></table>
     <p class="small" id="other"></p>`;
   const box = document.getElementById('q');
@@ -338,7 +338,8 @@ async function viewAthletes(q) {
       b.classList.toggle('on', id === list); b.setAttribute('aria-selected', id === list);
     }
     const rows = lists[list];
-    document.getElementById('rows').innerHTML = rows.map(a => `<tr><td><a href="#/athletes/${enc(a.key)}">${esc(a.name)}</a>${a.matched ? '' : ' <span class="warn small">(unmatched)</span>'}</td><td>${a.seasons.map(seasonLabel).join(', ')}</td><td class="num">${a.sessions}</td><td class="num">${a.races}</td><td>${a.strava ? 'yes' : ''}</td></tr>`).join('')
+    const ruleTag = a => a.rule ? ` <span class="muted small" title="data/rules/athletes.csv line ${esc(a.rule.line)}: status=${esc(a.rule.status)}">(your rule)</span>` : '';
+    document.getElementById('rows').innerHTML = rows.map(a => `<tr><td><a href="#/athletes/${enc(a.key)}">${esc(a.name)}</a>${a.matched ? '' : ' <span class="warn small">(unmatched)</span>'}${ruleTag(a)}</td><td>${a.seasons.map(seasonLabel).join(', ')}</td><td class="num">${a.sessions}</td><td class="num">${a.races}</td><td>${a.strava ? 'yes' : ''}</td></tr>`).join('')
       || `<tr><td colspan="5" class="muted">No ${list} athletes${term ? ' match' : ''}.</td></tr>`;
     const other = list === 'current' ? 'historical' : 'current';
     document.getElementById('other').innerHTML = term && lists[other].length

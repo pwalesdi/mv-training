@@ -35,19 +35,25 @@ def load_aliases():
         return {races.norm(r["workbook_name"]): r for r in csv.DictReader(fh)}
 
 
+LISTS = ("current", "historical")  # data/rules/athletes.csv statuses that pick the app's Athletes list
+
+
 class AthleteRules:
     """data/rules/athletes.csv: workbook_name, athlete_id, season, status, note.
 
     A row with an athlete_id is for that Athletic.net athlete: every workbook spelling that resolves to the ID,
     their race results and their Strava weeks (workbook_name is then only a label). A row without one is for a
     workbook name, as written or as shown after aliases.csv (athletes with no Athletic.net match). A blank
-    season means every season. status=exclude leaves the athlete out; any other status (e.g. alum) is a note
-    on their athlete-block rows, a season's own row before an every-season row.
+    season means every season. status=exclude leaves the athlete out; status=current / historical puts them on
+    that Athletes list in the app, whatever their sheets and races say (with a season: only while it is the
+    newest season built - see listing); any other status (e.g. alum) is a note on their athlete-block rows, a
+    season's own row before an every-season row.
     """
 
     def __init__(self, path):
         self.by_id, self.by_name, self.lines, self.used = defaultdict(list), defaultdict(list), [], set()
         self.known, self.left_out = set(), defaultdict(set)  # names seen on sheets; left out, by season ('' = all)
+        self.listed_as = defaultdict(dict)  # current / historical row line -> {app key: (athlete_id, name shown)}
         with open(path) as fh:
             for line, r in enumerate(csv.DictReader(fh), start=2):
                 r = {k: (v or "").strip() for k, v in r.items() if k}
@@ -56,13 +62,65 @@ class AthleteRules:
                 if r.get("athlete_id"):
                     self.by_id[r["athlete_id"]].append(r)
                 elif r.get("workbook_name"):
-                    self.by_name[races.norm(r["workbook_name"])].append(r)
+                    first, last = _first_last(r["workbook_name"])  # 'Doe, Jane' (as some sheets write it) = 'Jane Doe'
+                    for k in {races.norm(r["workbook_name"]), races.norm(f"{first} {last}")}:
+                        self.by_name[k].append(r)
 
-    def _rows(self, season, athlete_id, names):
+    def _matching(self, athlete_id, names):
         rows = list(self.by_id.get(athlete_id, ())) if athlete_id else []
         for n in dict.fromkeys(races.norm(n) for n in names):
             rows += self.by_name.get(n, ())
-        return sorted((r for r in rows if r.get("season", "") in (season, "")), key=lambda r: r.get("season", "") == "")
+        return list({r["line"]: r for r in rows}.values())  # once each ('Doe, Jane' is filed under both orders)
+
+    def _rows(self, season, athlete_id, names):
+        """This athlete's rows for the season (not the current / historical ones), a season's own row first."""
+        rows = [r for r in self._matching(athlete_id, names)
+                if r.get("status") not in LISTS and r.get("season", "") in (season, "")]
+        return sorted(rows, key=lambda r: r.get("season", "") == "")
+
+    def listed(self, athlete_id, shown, names=()):
+        """Note an athlete who is in the build (a workbook row or a race) and named by a current / historical row,
+        under the key the app uses: the Athletic.net ID, or 'u:' + the name shown."""
+        for r in self._matching(athlete_id, names):
+            if r.get("status") in LISTS:
+                self.listed_as[r["line"]][athlete_id or f"u:{shown}"] = (athlete_id, shown)
+
+    def listing(self, newest, seasons):
+        """The status=current / historical rows that apply -> (athlete_listing rows, review items; no names).
+
+        A row applies while its season (blank = always) is the newest season built - the season the app's
+        Current list is for. For one athlete a season's own row wins over an every-season row; two rows at the
+        same level that disagree are both left unused (review: rule_conflict)."""
+        out, review, by_key = [], [], defaultdict(list)
+
+        def item(issue, r, detail):
+            who = f"athlete_id {r['athlete_id']}" if r.get("athlete_id") else "workbook name"
+            review.append({"issue": issue, "season": r.get("season", ""), "tab": "", "block": "",
+                           "detail": f"data/rules/athletes.csv line {r['line']} ({who}, status={r['status']}) {detail}"})
+
+        for r in self.lines:
+            if r.get("status") not in LISTS:
+                continue
+            if r.get("season") and r["season"] != newest:
+                item("rule_unused", r, f"is for {r['season']}, but the newest season built is {newest or 'none'} - not used")
+            elif not self.listed_as.get(r["line"]):
+                if seasons is None or r.get("season") in seasons:
+                    item("rule_unused", r, "matched no workbook row or race")
+            else:
+                for key, who in self.listed_as[r["line"]].items():
+                    by_key[key].append((r, who))
+        for key, hits in by_key.items():
+            level = min(not r.get("season") for r, _ in hits)  # False (0) when a season's own row names them
+            top = [(r, who) for r, who in hits if (not r.get("season")) == level]
+            if len({r["status"] for r, _ in top}) > 1:
+                for r, _ in top:
+                    item("rule_conflict", r, f"disagrees with line(s) {', '.join(str(o['line']) for o, _ in top if o is not r)} "
+                                             f"for the same athlete - neither is used")
+                continue
+            r, (aid, shown) = top[0]
+            out.append({"athlete_id": aid, "athlete_name": shown, "status": r["status"],
+                        "season": r.get("season", ""), "rule_line": r["line"]})
+        return out, review
 
     def status(self, season, athlete_id="", names=()):
         """'exclude' if any row for this athlete and season excludes them, else the status of their row ('')."""
@@ -98,8 +156,9 @@ class AthleteRules:
         return self.left_out[""] | self.left_out[season]
 
     def unused(self, seasons):
-        """Rows that matched nothing in the seasons built (seasons=None: all), by line number - no names."""
-        return [r for r in self.lines if r["line"] not in self.used
+        """Rows that matched nothing in the seasons built (seasons=None: all), by line number - no names.
+        The current / historical rows are checked in listing."""
+        return [r for r in self.lines if r["line"] not in self.used and r.get("status") not in LISTS
                 and (seasons is None or (r.get("season") and r["season"] in seasons))]
 
 
@@ -374,6 +433,7 @@ def build(seasons=None, out_dir=None, mileage_dir=None, strava_dir=None):
     for r in race_rows:
         if not athletes.excluded(mileage.season_of(r["date"]), r["athlete_id"]):
             T["races"].append({**r, "date": r["date"].isoformat()})
+            athletes.listed(r["athlete_id"], r["athlete_name"])
     athletes.add_rule_names(id_names, aliases)
     scrub_left_out(T, athletes)
     for r in athletes.unused(seasons):
@@ -381,6 +441,10 @@ def build(seasons=None, out_dir=None, mileage_dir=None, strava_dir=None):
                        "detail": f"data/rules/athletes.csv line {r['line']} "
                                  f"({'athlete_id ' + r['athlete_id'] if r.get('athlete_id') else 'workbook name'}) "
                                  f"matched no workbook row, race or Strava week"})
+    # data/rules/athletes.csv status=current / historical: which Athletes list the app puts someone on
+    listing, l_review = athletes.listing(max((s["season"] for s in T["sheets"]), default=""), seasons)
+    T["athlete_listing"].extend(listing)
+    review.extend(l_review)
     _write(T, out_dir)
     return T
 
@@ -460,6 +524,8 @@ def _do_sheet(ws, season, book, date, types, aliases, athletes, by_name, id_name
             names = name_orders(a["name"], plain) + [canon]
             status = athletes.status(season, aid, names)
             athletes.seen(season, status, aid, names + [a["raw"]])
+            if status != "exclude":
+                athletes.listed(aid, canon, names)
             resolved.append((a, aid, canon, how, status))
             if how == "unmatched" and status != "exclude":
                 shown = f" (shown as {canon})" if races.norm(canon) != races.norm(a["name"]) else ""

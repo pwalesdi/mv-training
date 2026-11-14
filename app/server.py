@@ -159,6 +159,8 @@ class Data:
         # Strava: activities, and the weekly series the Mileage tab shows (activities and / or the weekly export)
         self.acts, self.weeks, self.months = table("activities"), table("athlete_weeks"), table("athlete_months")
         self.settings = {r["setting"]: r["value"] for r in table("settings")}  # rules/mileage.csv as built
+        # data/rules/athletes.csv status=current / historical, as the build resolved it: app key -> row
+        self.listing = {akey(r): r for r in table("athlete_listing")}
         con.close()
         # a result Athletic.net posted twice (two meet IDs for one race) is marked by the build; show it once
         self.races = [r for r in self.races if not r.get("duplicate_of")]
@@ -240,12 +242,18 @@ class Data:
         for aid, dates in self.act_dates.items():  # a season with Strava activities is one of the athlete's seasons
             if aid in self.athletes:
                 self.athletes[aid]["seasons"] |= {season_of(d) for d in dates}
-        # current = on a workout sheet in the newest workbook's season, or raced for MV in that season (Jul-Jun)
+        # current = on a workout sheet in the newest workbook's season, or raced for MV in that season (Jul-Jun) -
+        # unless a status=current / historical row in data/rules/athletes.csv puts the athlete on a list
         self.current_season = self.seasons[-1] if self.seasons else ""
-        self.current = ({akey(a) for a in self.ab if a["season"] == self.current_season}
-                        | {akey(r) for r in self.races if season_of(r["date"]) == self.current_season})
+        on_sheets_or_raced = ({akey(a) for a in self.ab if a["season"] == self.current_season}
+                              | {akey(r) for r in self.races if season_of(r["date"]) == self.current_season})
+        self.current = set()
         for k, e in self.athletes.items():
-            e["current"] = k in self.current
+            rule = self.listing.get(k)
+            e["current"] = rule["status"] == "current" if rule else k in on_sheets_or_raced
+            e["rule"] = {"status": rule["status"], "line": rule["rule_line"]} if rule else None
+            if e["current"]:
+                self.current.add(k)
             e["strava"] = bool(e["athlete_id"] and self.weeks_by_athlete.get(e["athlete_id"]))
 
     # ---- helpers -------------------------------------------------------------------------------

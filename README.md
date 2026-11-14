@@ -53,7 +53,9 @@ written, "Church" when its reps are 1725 m laps, "track?" (inferred, dashed) for
 
 **Athletes** (top bar, between Calendar and Workouts): **Current** by default - everyone on a
 workout sheet in the newest workbook's season, or who raced for MV in that season (July-June) -
-and **Historical** for everyone else. The search box searches both lists (each tab shows how many
+and **Historical** for everyone else. A row in `data/rules/athletes.csv` with `status=current` or
+`status=historical` puts an athlete on that list instead (marked "(your rule)"; their data stays) -
+see `rules/README.md`. The search box searches both lists (each tab shows how many
 match). Click a name for the athlete page; a name anywhere else (day view, races, workouts) links
 to it too.
 
@@ -191,6 +193,7 @@ the export covers, so a week it only partly covers is marked partial.
 | `activities` | Strava activity: date, sport, what it counts as (run / cross / other / excluded), miles, moving time, pace, longest run of its week, any fix or check |
 | `athlete_weeks` | athlete x week the Mileage tab shows: run miles and their source (activities / export, both kept), runs, runs with no distance, cross-training minutes, longest run, partial-week flag, the days the data covers (`covered_from` / `covered_to`) |
 | `athlete_months` | athlete x calendar month, from `athlete_weeks`: run miles (each run on its own date; a weekly-export week spread evenly over its days - `export_days`), runs, cross-training minutes, days with data, `partial` + `month_note` when the data doesn't cover the whole month |
+| `athlete_listing` | athlete a `status=current` / `historical` row in `data/rules/athletes.csv` puts on that Athletes list (the row that counts, by line number) |
 | `review` | anything the parser couldn't settle - read this after each run |
 
 ## Rules that came from Patrick
