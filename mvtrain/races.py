@@ -11,11 +11,13 @@ meet ID of the copy that is kept (the one with more decimals).
 rules/race_kinds.csv makes every result of a meet one kind, whichever export it is in (Mid-Season Mania: a
 track meet run in October that Athletic.net also posts as cross country). export_kind is the export a row
 came from, kind_rule the rule line that set its kind. For a meet a rule names, each athlete's race is kept
-once: the copy from the export of its kind, else one with a time - the others get duplicate_of. Track events
-are named from their distance, the same way for every export ('1600 Meters' and '1,600 Meters' are both
-'1,600 Meters'). season is the school year from the meet date (July-June: an October race is in that fall's
-school year); Athletic.net's own season_year is kept as written but not used. unofficial is 1 where an export
-marks a result unofficial (a column named like unofficial / official), else blank.
+once: the copy from the export of its kind, else one with a time - the others get duplicate_of. Distances are
+spelled one way per kind, whichever export a row is in: track events as the track exports spell them ('1,600
+Meters' -> '1600 Meters'), XC distances as the XC exports do ('5000 Meters' -> '5,000 Meters', '3.00 Miles' ->
+'3 Miles'). season is the school year from the meet date (July-June: an October race is in that fall's school
+year); Athletic.net's own season_year is kept as written but not used. hand_timed is 1 for a mark the export
+marks hand-timed (TRUE), else 0 (FALSE or blank). unofficial is 1 where an export marks a result unofficial (a
+column named like unofficial / official), else blank.
 
 The fitness reference is each athlete's best 1600 m *equivalent* (Riegel,
 exponent 1.06) from races in the 365 days before a date. Unlabeled blocks get
@@ -55,10 +57,30 @@ def school_season(d):
 METERS = re.compile(r"\s*(\d[\d,]*)\s*(?:meters?|m)\s*", re.I)
 
 
+MILES = re.compile(r"\s*(\d+(?:\.\d+)?)\s*(?:miles?|mi)\s*", re.I)
+
+
 def track_event(raw):
-    """A track event named from its distance, one way for every export: '1600 Meters' / '1,600 Meters' -> '1,600 Meters'."""
+    """A track event spelled as the track exports spell it: '1,600 Meters' / '1600 Meters' -> '1600 Meters'."""
     m = METERS.fullmatch(raw or "")
-    return f"{int(m.group(1).replace(',', '')):,} Meters" if m else raw
+    return f"{int(m.group(1).replace(',', ''))} Meters" if m else raw
+
+
+def xc_distance(raw):
+    """An XC distance spelled as the XC exports spell it: '5000 Meters' -> '5,000 Meters', '3.00 Miles' -> '3 Miles'."""
+    m = METERS.fullmatch(raw or "")
+    if m:
+        return f"{int(m.group(1).replace(',', '')):,} Meters"
+    m = MILES.fullmatch(raw or "")
+    if m:
+        v = float(m.group(1))
+        return f"{v:g} {'Mile' if v == 1 else 'Miles'}"
+    return raw
+
+
+def _hand_timed(row):
+    """1 when the export marks the mark hand-timed (TRUE / yes / 1), else 0 (FALSE or blank)."""
+    return 1 if (row.get("hand_timed") or "").strip().lower() in ("true", "yes", "y", "1", "x", "h") else 0
 
 
 def _unofficial(row):
@@ -95,8 +117,7 @@ def _apply_kind_rules(results, rules):
         if rule:
             rule["used"] = True
             r["kind"], r["kind_rule"] = rule["kind"], f"rules/race_kinds.csv line {rule['file_line']}"
-        if r["kind"] == "TF":
-            r["event"] = track_event(r["event"])
+        r["event"] = track_event(r["event"]) if r["kind"] == "TF" else xc_distance(r["event"])
 
 
 def load_file_rules(rules_dir):
@@ -283,6 +304,7 @@ def load(race_dir, rules_dir=None, review=None):
                     "seconds": secs,
                     "mark": r.get("time") or r.get("mark", ""),
                     "place": r["place"],
+                    "hand_timed": _hand_timed(r),
                     "unofficial": _unofficial(r),
                     "season": school_season(date),
                     "season_year": r["season_year"],

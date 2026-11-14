@@ -361,8 +361,10 @@ def resolve(name, aliases, by_name, id_names, plain=False):
         k = races.norm(n)
         if k in aliases:
             aid = aliases[k]["athlete_id"]
-            if not aid:  # a workbook-only spelling merged into another workbook name: still no Athletic.net match
-                return "", aliases[k]["athletic_net_name"] or name, "unmatched"
+            if not aid:  # a spelling merged into another name with no ID given: that name's exact Athletic.net match, if any
+                target = aliases[k]["athletic_net_name"] or name
+                aid = by_name.get(races.norm(target), "")
+                return (aid, id_names[aid], "alias") if aid else ("", target, "unmatched")
             return aid, id_names.get(aid, aliases[k]["athletic_net_name"]), "alias"
         if k in by_name:
             aid = by_name[k]
