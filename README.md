@@ -173,11 +173,11 @@ the export covers, so a week it only partly covers is marked partial.
 | Table | One row per |
 |---|---|
 | `days` | calendar day: sessions, double-threshold flag, workout chips, venue |
-| `sheets` | workbook tab: date (from the tab name), session, venue, weather, date conflicts |
+| `sheets` | workbook tab: date (from the tab name), session, venue as written, weather, date conflicts; `venue_name` / `venue_kind` / `venue_source` - the session's venue as the app shows it (`rules/venues.csv`: written on the sheet, or inferred from laps / track distances) |
 | `blocks` | group within a sheet: rep distances, targets, rest, label lines |
 | `prescriptions` | label line ("Threshold Intervals: 5 x Lap @ 20k RP"): type, anchor, band |
 | `athlete_blocks` | athlete in a block: Athletic.net ID, cooldown, total volume, notes |
-| `reps` | athlete x rep: distance, target, actual, status, type/band, shared-split flag |
+| `reps` | athlete x rep: distance, target, actual, status, type/band, shared-split flag; `type_note` when an inferred type was changed by a rule (the church-loop cap in `rules/venues.csv`) |
 | `races` | Athletic.net result. XC results also carry `xc_meet` (the meet across years) and `xc_course` (meet + distance: the same course - or, from `rules/xc_courses.csv`, one course across distances, named in `xc_course_name`); `duplicate_of` marks a result Athletic.net posted twice |
 | `weekly_mileage` | athlete x week from the weekly exports (`data/mileage/`): miles, partial-week flag |
 | `activities` | Strava activity: date, sport, what it counts as (run / cross / other / excluded), miles, moving time, pace, longest run of its week, any fix or check |
@@ -189,6 +189,12 @@ the export covers, so a week it only partly covers is marked partial.
 
 - The **tab name is the date**; the date written in the sheet is only checked against it.
 - **Church loop** = 1725 m. Venue "Church" or any 1725 m rep means the church loop.
+- **Venue per session** (`rules/venues.csv`): the venue written on the sheet; with none, 1725 m laps =
+  the church loop, track distances = the track (inferred, "track?").
+- **At the church loop nothing is lactate resistance**: a type *inferred* faster than threshold / LT
+  becomes threshold / LT there (`rules/venues.csv`; the rep's `type_note` says so). Your own labels
+  are never changed - one that comes out lactate resistance or faster is listed in review.csv
+  (`venue_cap_label`) with the override row to paste if you want to change it.
 - **Double threshold day** = a 2025-26+ day with Session 1 and Session 2.
 - A rep belongs to a label line that states its distance, within ~2% (2.0 miles = the
   3200 column). A continuous line ("2.0 miles continuous", "3 Lap Threshold Run",
