@@ -76,10 +76,33 @@ function chipHtml(c) {
 function legendHtml() {
   const cats = META.categories.map(c => chipHtml({ type: c.type, label: c.name, src: 'sheet' })).join('');
   return `<div class="legend">${cats}${chipHtml({ type: 'threshold', label: 'Threshold', src: 'inferred' })}
-    <span><span class="badge double">2× T</span> double-threshold day</span>
-    <span><span class="badge">Church</span> church loop</span>
-    <span><span class="badge race">Race</span> race day</span></div>`;
+    <span><span class="badge race">Race</span> race day</span></div>
+    <div class="legend tintkey"><span><i class="sw t-threshold"></i>day color = main workout, your label</span><span><i class="sw t-threshold inf"></i>inferred from pace</span>
+    <span><i class="sw dblsw"></i><span class="badge double">2× T</span> double-threshold day: AM (Session 1) on top, PM (Session 2) below</span>
+    <span><span class="vtag">Track</span> venue on the sheet</span><span><span class="vtag church">Church</span> no venue written, 1725 m laps</span><span><span class="vtag inf">track?</span> inferred from track distances</span></div>`;
 }
+// a session's venue (rules/venues.csv, decided in the build): written on the sheet, or inferred from its reps
+function venueTag(v) {
+  if (!v || !v.name) return '';
+  const why = v.source === 'sheet' ? `Venue written on the sheet: ${v.name}` : v.source === 'laps' ? 'No venue on the sheet - its 1725 m laps mean the church loop'
+    : 'No venue on the sheet - inferred from track distances (rules/venues.csv)';
+  return `<span class="vtag${v.source === 'track_distances' ? ' inf' : ''}${v.kind.includes('church') ? ' church' : ''}" title="${esc(why)}">${esc(v.name)}</span>`;
+}
+const venueTags = vs => (vs || []).map(venueTag).join('');
+const venueText = vs => (vs || []).map(v => v.name).join(' / ');
+const tintClass = m => (m ? ` m t-${esc(m.type)}${m.src === 'inferred' ? ' inf' : ''}` : '');
+const mainText = m => (m ? `Main workout: ${m.name}${m.src === 'inferred' ? ' (inferred from pace)' : ''}` : '');
+// one session of a double day (AM = Session 1 on top, PM = Session 2): its own tint, venue and chips
+// (team: two lines - AM + venue, then its chips; athlete calendar: one line, so their runs still fit below)
+function halfHtml(p, max, team) {
+  const ap = p.session_no === 1 ? 'AM' : 'PM';
+  const own = c => ({ ...c, label: c.label.replace(new RegExp(`-${ap}\\b`), '') });  // 'DT-AM' in the AM half: 'DT'
+  const chips = p.chips.slice(0, max).map(c => chipHtml(own(c))).join('') + (p.chips.length > max ? `<span class="more">+${p.chips.length - max}</span>` : '');
+  const quiet = p.chips.length ? '' : `<span class="quiet">${team && !p.groups ? (p.hidden_groups ? 'no varsity groups' : 'no groups') : 'no type'}</span>`;
+  if (!team) return `<div class="half one${tintClass(p.main)}"><b>${ap}</b>${venueTags(p.venues)}${chips}${quiet}</div>`;
+  return `<div class="half${tintClass(p.main)}"><div class="hhead"><b>${ap}</b>${venueTags(p.venues)}</div>${chips ? `<div class="chips">${chips}</div>` : ''}${quiet}</div>`;
+}
+const halfLabel = p => `${p.session_no === 1 ? 'AM' : 'PM'}${p.venues.length ? ` (${venueText(p.venues)})` : ''}: ${[mainText(p.main), ...p.chips.map(c => c.label + (c.src === 'inferred' ? ' (inferred)' : ''))].filter(Boolean).join(', ') || 'no type'}`;
 function filterNote(res, season) {
   if (res.filter === 'varsity') {
     return `<details class="note small"><summary>Showing groups with at least one of the ${res.varsity_count} varsity athletes for ${seasonLabel(season)}. Switch to “All athletes” above for everyone.</summary><p>${esc(META.varsity_rule)}</p></details>`;
@@ -128,8 +151,8 @@ async function viewCalendar(season, month) {
   const cal = await api(`/api/calendar/${enc(season)}?f=${filter}`);
   const days = cal.days, dates = Object.keys(days).sort();
   const withData = new Set(dates.map(d => d.slice(0, 7)));
-  let months = monthRange(cal.first_month, cal.last_month);
-  if (dates.length) months = months.filter(m => m >= dates[0].slice(0, 7) && m <= dates[dates.length - 1].slice(0, 7));
+  // every month with a day in it - a workbook can start before 1 July (2023-24 has June 2023 sessions)
+  const months = dates.length ? monthRange(dates[0].slice(0, 7), dates[dates.length - 1].slice(0, 7)) : [];
   const opts = META.seasons.map(s => `<option value="${s.season}"${s.season === season ? ' selected' : ''}>${esc(s.label)}</option>`).join('');
   let html = `<div class="bar"><h1>Team calendar</h1><select id="season" aria-label="Season">${opts}</select>
     <nav class="months" aria-label="Months">${months.map(m => `<a class="${withData.has(m) ? '' : 'empty'}" href="#/calendar/${season}?m=${m}">${monthName(m, true)}</a>`).join('')}</nav></div>`;
@@ -165,16 +188,20 @@ function monthGrid(m, days, cell = dayCell, weekCell = null) {
 function dayCell(iso, d, info) {
   const b = [];
   if (info.double) b.push('<span class="badge double" title="Double-threshold day (Session 1 + Session 2)">2× T</span>');
-  if (info.church) b.push('<span class="badge" title="Church loop (1725 m)">Church</span>');
+  if (!info.split) b.push(venueTags(info.venues));
   if (info.races.length) b.push('<span class="badge race">Race</span>');
   const MAX = 5;
   const chips = info.chips.slice(0, MAX).map(chipHtml).join('')
     + (info.chips.length > MAX ? `<span class="more">+${info.chips.length - MAX} more</span>` : '');
   const races = info.races.map(r => `<span class="racename" title="${esc(r.meet)} · ${r.n} athlete${r.n === 1 ? '' : 's'}">${esc(r.meet)}</span>`).join('');
-  const quiet = info.practice && !info.groups ? `<span class="quiet">${info.hidden_groups ? 'no varsity groups' : 'no groups listed'}</span>`
+  const quiet = info.split ? '' : info.practice && !info.groups ? `<span class="quiet">${info.hidden_groups ? 'no varsity groups' : 'no groups listed'}</span>`
     : info.groups && !info.chips.length ? `<span class="quiet">${info.groups} group${info.groups === 1 ? '' : 's'} · no type</span>` : '';
-  const label = `${fmtDateLong(iso)}: ${info.chips.map(c => c.label + (c.src === 'inferred' ? ' (inferred)' : '')).join(', ') || 'no workout chips'}`;
-  return `<a class="cell has" href="#/day/${iso}" aria-label="${esc(label)}"><div class="top-row"><span class="dnum">${d}</span>${b.join('')}</div><div class="chips">${chips}</div>${races}${quiet}</a>`;
+  const body = info.split ? info.parts.map(p => halfHtml(p, 3, true)).join('') : `<div class="chips">${chips}</div>`;
+  const what = info.split ? info.parts.map(halfLabel).join('; ')
+    : [venueText(info.venues), mainText(info.main), ...info.chips.map(c => c.label + (c.src === 'inferred' ? ' (inferred)' : ''))].filter(Boolean).join(', ');
+  const label = `${fmtDateLong(iso)}${info.double ? ' (double-threshold day)' : ''}: ${what || 'no workout chips'}`;
+  const cls = info.split ? `${info.double ? ' dbl' : ''} split` : tintClass(info.main);
+  return `<a class="cell has${cls}" href="#/day/${iso}" aria-label="${esc(label)}" title="${esc(label)}"><div class="top-row"><span class="dnum">${d}</span>${b.join('')}</div>${body}${races}${quiet}</a>`;
 }
 
 /* ---------- day ---------- */
@@ -190,7 +217,7 @@ async function viewDay(date, q) {
     ${day.next ? `<a href="${step(day.next)}">${fmtDateShort(day.next)} ›</a>` : ''}
     ${hl ? `<span class="muted small">(${esc(hl.name)}’s days)</span><a class="small" href="#/day/${date}">team view of this day</a>` : ''}</div>`;
   const badges = [day.double ? '<span class="badge double">2× T double-threshold day</span>' : '',
-    day.church ? '<span class="badge">Church loop</span>' : '', day.races.length ? '<span class="badge race">Race day</span>' : ''].join(' ');
+    day.races.length ? '<span class="badge race">Race day</span>' : ''].join(' ');
   html += `<div class="dayhead"><h1>${fmtDateLong(date)}</h1><span class="muted">${seasonLabel(day.season)}</span>${badges}</div>`;
   if (hl) html += `<p class="small"><span class="hlkey">${esc(hl.name)}</span> highlighted${day.filter === 'varsity' && !hl.varsity ? ' - shown with the varsity athletes even though they weren’t varsity this season' : ''}.</p>`;
   if (hl && hl.activities && hl.activities.length) html += `<div class="stravaday"><h3>${esc(hl.name)} on Strava</h3><ul>${hl.activities.map(activityLine).join('')}</ul></div>`;
@@ -219,8 +246,9 @@ function racesTable(races, showDate, ctx = {}) {
 }
 function sessionHtml(s, ctx) {
   const name = s.session_no ? `Session ${s.session_no}` : 'Practice';
-  const bits = [s.start_time, s.venue, s.weather].filter(Boolean).map(esc).join(' · ');
-  let html = `<section class="session"><header><h3>${name}</h3><span class="muted">${bits}</span><span class="muted small">tab ${esc(s.tab)}</span>`;
+  const bits = [s.start_time, s.weather].filter(Boolean).map(esc).join(' · ');
+  const where = s.where && s.where.name ? venueTag(s.where) : '';
+  let html = `<section class="session"><header><h3>${name}</h3>${where}<span class="muted">${bits}</span><span class="muted small">tab ${esc(s.tab)}</span>`;
   if (s.session_note) html += `<span class="small">${esc(s.session_note)}</span>`;
   if (s.date_conflict) html += `<span class="warn small" title="${esc(s.date_conflict)}">sheet title says “${esc(s.title)}” - tab date used</span>`;
   html += '</header>';
@@ -367,7 +395,7 @@ async function athleteCalendar(key, q) {
     : lr === 0 ? '“Long run” = the longest run of each Monday–Sunday week (no minimum - rules/mileage.csv)'
     : `<b>bold</b> = the longest run of that Monday–Sunday week, “Long run” when it is at least ${fmtMi(lr)} mi (rules/mileage.csv)`;
   html += `<p class="muted small">Only the days ${esc(a.name)} is on a workout sheet, raced, or recorded a Strava run or cross-training. A day’s color is its main workout: the category with the most rep distance that day - solid when it’s from your label (or rules/line_overrides.csv), striped when it was inferred from pace. Chips are the types of their own reps (dashed = inferred). Strava runs show distance · pace per mile; ${lrText}. The Week column is the week’s Strava run miles (blank: no data). Click a day for the full day with their row highlighted.</p>`;
-  html += legendHtml() + `<div class="legend tintkey"><span><i class="sw t-threshold"></i>main workout, your label</span><span><i class="sw t-threshold inf"></i>main workout, inferred from pace</span><span><b>42.3</b> mi = the week’s Strava run miles (* partial week)</span></div>`;
+  html += legendHtml() + `<div class="legend tintkey"><span><b>42.3</b> mi = the week’s Strava run miles (* partial week)</span></div>`;
   html += `<div class="acal">${months.map(m => monthGrid(m, days, (iso, d, info) => athleteDayCell(iso, d, info, key), mon => weekCell(mon, cal.weeks || {}))).join('')}</div>`;
   if (!months.length) html += `<p class="muted">No training, races or Strava activities in ${seasonLabel(season)}.</p>`;
   main.innerHTML = html;
@@ -388,7 +416,7 @@ function weekCell(mon, weeks) {
 function athleteDayCell(iso, d, info, key) {
   const b = [];
   if (info.double) b.push('<span class="badge double" title="Did both sessions of a double-threshold day">2× T</span>');
-  if (info.church) b.push('<span class="badge" title="Church loop (1725 m)">Church</span>');
+  if (!info.split) b.push(venueTags(info.venues));
   if (info.races.length) b.push('<span class="badge race">Race</span>');
   const MAX = 2;
   const chips = info.chips.slice(0, MAX).map(chipHtml).join('')
@@ -404,11 +432,13 @@ function athleteDayCell(iso, d, info, key) {
     return `<span class="raceres" title="${esc(t)}">${esc(shortEvent(r.event))} <b>${esc(r.mark)}</b></span>`;
   }).join('')}`).join('');
   const quiet = info.practice && !info.chips.length ? '<span class="quiet">practice · no type</span>' : '';
-  const mt = info.main, main = mt ? `Main workout: ${mt.name}${mt.src === 'inferred' ? ' (inferred from pace)' : ''}` : '';
-  const label = `${fmtDateLong(iso)}: ${[main, ...info.chips.map(c => c.label + (c.src === 'inferred' ? ' (inferred)' : '')), ...info.races.map(r => `${r.meet} ${r.event} ${r.mark}`),
+  const what = info.split ? info.parts.map(halfLabel)
+    : [venueText(info.venues), mainText(info.main), ...info.chips.map(c => c.label + (c.src === 'inferred' ? ' (inferred)' : ''))];
+  const label = `${fmtDateLong(iso)}${info.double ? ' (double-threshold day)' : ''}: ${[...what, ...info.races.map(r => `${r.meet} ${r.event} ${r.mark}`),
     ...info.runs.map(runText), ...info.cross.map(c => `${c.sport} ${fmtMin(c.min)}`)].filter(Boolean).join(', ') || 'practice, no type'}`;
-  const tint = mt ? ` m t-${esc(mt.type)}${mt.src === 'inferred' ? ' inf' : ''}` : '';
-  return `<a class="cell has${tint}" href="#/day/${iso}?a=${enc(key)}" aria-label="${esc(label)}" title="${esc(label)}"><div class="top-row"><span class="dnum">${d}</span>${b.join('')}</div><div class="chips">${chips}</div>${races}${quiet}${runsHtml(info)}</a>`;
+  const body = info.split ? info.parts.map(p => halfHtml(p, 1, false)).join('') : `<div class="chips">${chips}</div>${quiet}`;
+  const cls = info.split ? `${info.double ? ' dbl' : ''} split` : tintClass(info.main);
+  return `<a class="cell has${cls}" href="#/day/${iso}?a=${enc(key)}" aria-label="${esc(label)}" title="${esc(label)}"><div class="top-row"><span class="dnum">${d}</span>${b.join('')}</div>${body}${races}${runsHtml(info)}</a>`;
 }
 // one Strava run: '6.1 mi · 8:22' (pace per mile), or its time when no distance was recorded
 // (pace only from 0.1 mi up - shorter 'runs' are a watch started and stopped, and their pace means nothing)
@@ -629,10 +659,10 @@ async function athleteRaces(key, q) {
   Charts.wire(main);
   window.scrollTo(0, 0);
 }
-// chart-key entry for the faded mileage bars (there's no second axis: heights are relative to the biggest week)
+// chart-key entry for the faded mileage bars, read on the right-hand axis (race times are on the left)
 function mileageKey(ctx) {
   if (!ctx.bars) return '';
-  return `<span><i class="k-obar"></i>weekly run miles on Strava, behind the races (full height ≈ their biggest week, ${esc(fmtMi1(ctx.big.miles))} mi, ${esc(longDate(ctx.big.week_start))}; the hover gives the miles)</span>`;
+  return `<span><i class="k-obar"></i>weekly run miles on Strava, faded behind the races - right-hand axis (mi/wk); the small number over a bar is that week’s miles, left off where the bar is too narrow or a race mark is in the way (the hover gives the race week and the 4 weeks before; biggest week ${esc(fmtMi1(ctx.big.miles))} mi, ${esc(longDate(ctx.big.week_start))})</span>`;
 }
 // hover lines: the race week's run miles and the four weeks before it
 function raceWeekLines(date, ctx) {

@@ -206,30 +206,63 @@ const Charts = (() => {
     for (let v = a; v <= b + 1e-9; v += step) ticks.push(v);
     return { y, ticks };
   }
-  // faded weekly run miles behind race marks, on the chart's own time axis (xt: ms -> px). o: {bars: weeks
-  // [{week_start, miles, partial}], barMax: miles drawn at 90% of the plot height, t0, t1}. No second axis: the
-  // heights are relative to the athlete's biggest week (named in the chart key) and the hover gives the miles.
+  // weekly run miles behind the race marks - a second axis: race time on the left, miles a week on the right.
+  // o: {bars: weeks [{week_start, miles, partial}], barMax, t0, t1}; xt: ms -> px. Faded, so the races stay in front.
   function backBars(o, xt, T, H, B) {
-    if (!o.bars || !o.bars.length || !(o.barMax > 0)) return '';
-    const plotH = H - T - B;
-    let s = '';
+    if (!o.bars || !o.bars.length || !(o.barMax > 0)) return null;
+    const plotH = H - T - B, step = niceStep(o.barMax, 3), top = Math.ceil(o.barMax / step) * step;
+    const ym = v => H - B - plotH * v / top;
+    let svg = '';
+    const marks = [];
     for (const w of o.bars) {
       const a = ms(w.week_start), b = a + 7 * DAY, v = Number(w.miles);
       if (b <= o.t0 || a >= o.t1 || !(v > 0)) continue;
-      const xa = Math.max(xt(a), xt(o.t0)), xb = Math.min(xt(b), xt(o.t1)), bw = Math.max(1, (xb - xa) * 0.8);
-      const h = plotH * 0.9 * Math.min(1, v / o.barMax);
-      s += `<rect class="obar${w.partial ? ' partial' : ''}" x="${x1(xa + (xb - xa - bw) / 2)}" y="${x1(H - B - h)}" width="${x1(bw)}" height="${x1(h)}"/>`;
+      const xa = Math.max(xt(a), xt(o.t0)), xb = Math.min(xt(b), xt(o.t1)), slot = xb - xa, bw = Math.max(1, slot * 0.8);
+      svg += `<rect class="obar${w.partial ? ' partial' : ''}" x="${x1(xa + (slot - bw) / 2)}" y="${x1(ym(v))}" width="${x1(bw)}" height="${x1(H - B - ym(v))}"/>`;
+      marks.push({ cx: (xa + xb) / 2, top: ym(v), slot, v });
     }
-    return s;
+    return { svg, marks, top, step, ym };
+  }
+  // the right-hand axis for those bars: miles a week
+  function milesAxis(bb, W, R, T, H, B) {
+    let s = `<line class="axis2" x1="${W - R}" x2="${W - R}" y1="${T}" y2="${H - B}"/>`;
+    for (let v = 0; v <= bb.top + 1e-9; v += bb.step) {
+      const yy = bb.ym(v);
+      s += `<line class="tick" x1="${W - R}" x2="${W - R + 3}" y1="${x1(yy)}" y2="${x1(yy)}"/>`
+        + `<text class="ax ax2" x="${W - R + 5}" y="${x1(yy + 4)}">${+v.toFixed(1)}</text>`;
+    }
+    return s + `<text class="ax ax2" x="${W - R + 5}" y="${T - 7}">mi/wk</text>`;
+  }
+  // that week's miles on top of each bar - only where the number fits the bar's own width (else a smaller number,
+  // else none: the hover has every week) and touches no race mark, PR label or other number
+  function barLabels(bb, avoid, T) {
+    const hit = (a, b) => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
+    const placed = [];
+    let s = '';
+    for (const m of bb.marks) {
+      const txt = String(Math.round(m.v));
+      for (const fs of [9, 7.5]) {
+        // a bar too narrow for a two-digit number gets none, whatever its own number: otherwise only the
+        // smallest (one-digit) weeks would be labelled on a crowded chart
+        const w = txt.length * fs * 0.62, fit = Math.max(2, txt.length) * fs * 0.6, base = m.top - 2;
+        const box = [m.cx - w / 2 - 0.5, base - 0.95 * fs - 0.5, m.cx + w / 2 + 0.5, base + 0.25 * fs + 0.5];  // as the browser boxes text
+        if (fit > m.slot || box[1] < T - 14 || avoid.some(b => hit(box, b)) || placed.some(b => hit(box, b))) continue;
+        placed.push(box);
+        s += `<text class="blbl" x="${x1(m.cx)}" y="${x1(m.top - 2)}" text-anchor="middle" style="font-size:${fs}px">${txt}</text>`;
+        break;
+      }
+    }
+    return { svg: s, n: placed.length };
   }
   // pts: [{t (ms), seconds, lines (tooltip rows), cls, label?}] - sorted by time; breaks: start a new line segment
-  function pointsChart(kind, pts, W, H, L, R, T, B, x, yt, xAxis, aria, breakAt, back = '') {
+  function pointsChart(kind, pts, W, H, L, R, T, B, x, yt, xAxis, aria, breakAt, bb = null) {
     const id = `ch${nextId++}`;
-    let s = back;
+    let s = bb ? bb.svg : '';
     for (const v of yt.ticks) {
       s += `<line class="gl" x1="${L}" x2="${W - R}" y1="${x1(yt.y(v))}" y2="${x1(yt.y(v))}"/>`
         + `<text class="ax" x="${L - 6}" y="${x1(yt.y(v) + 4)}" text-anchor="end">${clock(v)}</text>`;
     }
+    if (bb) s += milesAxis(bb, W, R, T, H, B);
     s += xAxis;
     const xy = pts.map(p => [x(p), yt.y(p.seconds)]);
     let d = '';
@@ -239,10 +272,14 @@ const Charts = (() => {
       s += `<circle class="pt ${p.cls || ''}" data-i="${i}" data-secs="${p.seconds}" cx="${x1(xy[i][0])}" cy="${x1(xy[i][1])}" r="4.5"/>`;
     });
     const best = pts.findIndex(p => p.label);
+    const avoid = xy.map(([px, py]) => [px - 6.5, py - 6.5, px + 6.5, py + 6.5]);  // race marks, for the bar numbers
     if (best >= 0) {
-      const [bx, by] = xy[best], right = bx > W - R - 90;
-      s += `<text class="plbl" x="${x1(bx + (right ? -9 : 9))}" y="${x1(Math.max(T + 10, by - 8))}" text-anchor="${right ? 'end' : 'start'}">${esc(pts[best].label)}</text>`;
+      const [bx, by] = xy[best], right = bx > W - R - 90, lx = bx + (right ? -9 : 9), ly = Math.max(T + 10, by - 8);
+      const lw = pts[best].label.length * 6.6;  // 11px semibold, generous
+      s += `<text class="plbl" x="${x1(lx)}" y="${x1(ly)}" text-anchor="${right ? 'end' : 'start'}">${esc(pts[best].label)}</text>`;
+      avoid.push(right ? [lx - lw - 1, ly - 11, lx + 1, ly + 3.3] : [lx - 1, ly - 11, lx + lw + 1, ly + 3.3]);
     }
+    if (bb) s += barLabels(bb, avoid, T).svg;
     s += `<line class="xhair" x1="0" x2="0" y1="${T}" y2="${H - B}" visibility="hidden"/><circle class="ring" r="8" visibility="hidden"/>`
       + `<rect class="hit" x="${L}" y="${T - 6}" width="${W - L - R}" height="${H - T - B + 12}"/>`;
     registry.set(id, { kind: 'points', pts, xy, L, R, W });
@@ -266,19 +303,19 @@ const Charts = (() => {
   }
   // one track event over time; o: {t0, t1, width, event, bars?, barMax?}. The line breaks between seasons.
   function progression(pts, o) {
-    const W = Math.max(360, o.width), H = 180, L = 50, R = 16, T = 18, B = 26;
+    const W = Math.max(360, o.width), H = 180, L = 50, R = o.bars ? 44 : 16, T = 18, B = 26;
     const ppd = (W - L - R) / ((o.t1 - o.t0) / DAY);
     const xt = t => L + (t - o.t0) / DAY * ppd, x = p => xt(p.t);
     const yt = yTime(pts.map(p => p.seconds), T, H - T - B);
     const axis = yearTicks(o.t0, o.t1, xt, H, B, ppd) + `<line class="base" x1="${L}" x2="${W - R}" y1="${H - B}" y2="${H - B}"/>`;
     return pointsChart('progression', pts, W, H, L, R, T, B, x, yt, axis,
-      `${o.event}: ${pts.length} timed races${o.bars ? ', with weekly run miles behind them' : ''}; the table below lists every one`,
+      `${o.event}: ${pts.length} timed races (time on the left axis)${o.bars ? ', with weekly run miles behind them (right axis)' : ''}; the table below lists every one`,
       (a, b) => a.season !== b.season || b.t - a.t > 90 * DAY, backBars(o, xt, T, H, B));
   }
   // one XC course, its races in date order on a time axis (usually one a year), each labeled with its year;
   // o: {bars?, barMax?} for the weekly run miles behind them
   function course(pts, width, o = {}) {
-    const W = Math.max(260, width), H = 140, L = 50, R = 24, T = 16, B = 24;
+    const W = Math.max(260, width), H = 140, L = 50, R = o.bars ? 44 : 24, T = 16, B = 24;
     const first = pts[0].t, last = pts[pts.length - 1].t, pad = Math.max(45 * DAY, (last - first) * 0.08);
     const t0 = first - pad, t1 = last + pad, ppd = (W - L - R) / ((t1 - t0) / DAY);
     const xt = t => L + (t - t0) / DAY * ppd, x = p => xt(p.t);
@@ -286,7 +323,7 @@ const Charts = (() => {
     let axis = `<line class="base" x1="${L}" x2="${W - R}" y1="${H - B}" y2="${H - B}"/>`;
     pts.forEach(p => { axis += `<text class="ax" x="${x1(x(p))}" y="${H - 8}" text-anchor="middle">${esc(p.xlabel)}</text>`; });
     return pointsChart('course', pts, W, H, L, R, T, B, x, yt, axis,
-      `${pts.length} races on this course${o.bars ? ', with weekly run miles behind them' : ''}; the table lists each`, () => false,
+      `${pts.length} races on this course (time on the left axis)${o.bars ? ', with weekly run miles behind them (right axis)' : ''}; the table lists each`, () => false,
       backBars({ ...o, t0, t1 }, xt, T, H, B));
   }
 

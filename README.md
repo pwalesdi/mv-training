@@ -35,13 +35,21 @@ python -m mvtrain.build --seasons 2526  # one season
 
 Reads `data/build/training.sqlite` (run the build first) and picks up a rebuild without a
 restart. It only ever binds to 127.0.0.1 - the data is student data. Views: team calendar
-(default; season picker, month grid, chips, double-threshold / church-loop / race markers),
-day view (every session and group with your label text, athletes x reps, targets, rest,
+(default; season picker, month grid, chips, venue per session, race markers), day view (every
+session and group with your label text, athletes x reps, targets, rest,
 group-timed splits), the athletes list and athlete pages, and workouts by type (every session of a
 category/band, newest first). The Varsity / All athletes toggle belongs to the team calendar (and its
 day and workout views; it's hidden on the athlete pages); varsity = ran a varsity-level
 cross-country race that season (see `app/server.py`). Inferred types are dashed, italic and
 labelled "inferred".
+
+Both calendars (team and athlete): each day box is tinted by its main workout - the category (same
+colors as the chips) with the most rep distance that day, easy aerobic only when there's nothing
+else - solid when your label (or `rules/line_overrides.csv`) gives that category, striped and lighter
+when it was only inferred from pace. A double day (Session 1 and Session 2) is split: AM on top, PM
+below, each half with its own tint, chips and venue; a double-threshold day's box is shaded so it
+stands out. Venue is per session (`rules/venues.csv`): what's written on the sheet; with nothing
+written, "Church" when its reps are 1725 m laps, "track?" (inferred, dashed) for track distances.
 
 **Athletes** (top bar, between Calendar and Workouts): **Current** by default - everyone on a
 workout sheet in the newest workbook's season, or who raced for MV in that season (July-June) -
@@ -52,10 +60,8 @@ to it too.
 Athlete page:
 - **Calendar** (default): the same month grid, for one season (picker), with only the days
   the athlete is on a workout sheet, raced, or recorded a Strava run or cross-training - compact,
-  so a month fits on a laptop screen without scrolling. Each day is tinted by its main workout:
-  the category (same colors as the chips) with the most rep distance that day, easy aerobic only
-  when there's nothing else - solid when it comes from your label or `rules/line_overrides.csv`,
-  striped and lighter when it was inferred from pace. The Week column at the end of each row is
+  so a month fits on a laptop screen without scrolling. Tints, AM / PM halves and venues as above
+  (a day is split when they did both sessions). The Week column at the end of each row is
   that Monday-Sunday week's Strava run miles (blank: no data; * partial week). Chips are the types
   of their own reps; race days show meet, event and mark; 2× T means they did both sessions of a
   double day. Strava runs show distance · pace per mile (a busy day: the number of runs and their
@@ -85,9 +91,11 @@ Athlete page:
   a meet's distances one course, e.g. Lowell / San Francisco Invitational: raw times, each race's
   distance in the hover and the table), with a small chart on a time axis and each year's time,
   and every XC race as a plain list. Where the athlete has Strava data, their weekly run miles are
-  drawn as faded bars behind the race marks (no second axis: the tallest bar is their biggest
-  week, named in the key; the hover gives the race week's miles and the four weeks before). Times
-  only: nothing converts between events or courses (no mile equivalents).
+  drawn as faded bars behind the race marks on a second axis - race time on the left, miles a week
+  on the right - with each week's miles in small type over its bar wherever it fits (a bar too
+  narrow for two digits, or a number that would touch a race mark or another number, gets none;
+  the hover gives the race week's miles and the four weeks before). Times only: nothing converts
+  between events or courses (no mile equivalents).
 
 `python -m app --db other/training.sqlite --port 5051` runs it on another build (e.g. a test).
 

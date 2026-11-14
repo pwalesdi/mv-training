@@ -9,6 +9,7 @@
   --c-lactic_capacity: #eda100; --c-speed_endurance: #e87ba4; --c-easy_aerobic: #008300;
   --c-hills: #6250d6; --c-other: #898781;
   --c-cross: #8a6a43;  /* cross-training hours: not a workout category, so its own hue */
+  --dbl: #efe9dc; --dbl-edge: #cdbf9f;  /* double-threshold day: a sand shade behind its AM / PM halves */
 }
 @media (prefers-color-scheme: dark) {
   :root:where(:not([data-theme="light"])) {
@@ -20,6 +21,7 @@
     --c-lactic_capacity: #c98500; --c-speed_endurance: #d55181; --c-easy_aerobic: #008300;
     --c-hills: #9085e9; --c-other: #898781;
     --c-cross: #b0905f;
+    --dbl: #2b2720; --dbl-edge: #5c5038;
   }
 }
 
@@ -255,7 +257,7 @@ table.list.athletes td:nth-child(2) { color: var(--ink-2); }
 .acal .grid { gap: 3px; }
 .acal .grid.with-weeks { grid-template-columns: repeat(7, minmax(0, 1fr)) 56px; }
 .acal .dow { font-size: 10px; }
-.acal .cell { min-height: 0; height: 84px; padding: 2px 4px; gap: 1px; border-radius: 5px; }
+.acal .cell { min-height: 0; height: 100px; padding: 2px 4px; gap: 1px; border-radius: 5px; }
 .acal .cell > * { flex-shrink: 0; }  /* a busy day clips at the bottom; the date row never gets squeezed */
 .acal .cell .top-row { gap: 3px; flex-wrap: nowrap; overflow: hidden; min-height: 15px; }
 .acal .cell .dnum { font-size: 11px; }
@@ -291,4 +293,44 @@ a.cell.m:hover { background: color-mix(in srgb, var(--c) 30%, var(--surface)); b
 .chartkey .k-obar { background: var(--ink-2); opacity: .3; }
 table.list td.num, table.list th.num { text-align: right; }
 .bar input[type=search] { min-width: 250px; }
-.acal .cell.m { padding-left: 8px; }
+.cell.m { padding-left: 8px; }
+
+/* venue per session (rules/venues.csv): written on the sheet, or inferred (dashed, 'track?') */
+.vtag { display: inline-block; font-size: 10.5px; line-height: 15px; padding: 0 4px; border-radius: 4px; border: 1px solid var(--line-2);
+  color: var(--ink-2); background: var(--surface); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.vtag.church { border-color: var(--ink-2); }
+.vtag.inf { border-style: dashed; font-style: italic; color: var(--muted); }
+.session > header .vtag { font-size: 12px; line-height: 18px; }
+.cell .top-row .vtag { flex: 0 1 auto; }
+/* a double day: AM (Session 1) on top, PM (Session 2) below, each tinted by its own main workout */
+.cell.split { gap: 2px; }
+.cell .half { display: flex; flex-direction: column; gap: 1px; padding: 1px 4px 2px 7px; border-radius: 4px; min-width: 0; overflow: hidden;
+  background: var(--surface); border: 1px solid var(--line); }
+.cell .half.m { background: color-mix(in srgb, var(--c) 20%, var(--surface)); border-color: color-mix(in srgb, var(--c) 45%, var(--surface)); box-shadow: inset 3px 0 0 var(--c); }
+.cell .half.m.inf { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--c) 13%, var(--surface)) 0 4px, var(--surface) 4px 9px);
+  border-style: dashed; border-color: var(--line-2); box-shadow: inset 3px 0 0 color-mix(in srgb, var(--c) 40%, var(--surface)); }
+.cell .hhead { display: flex; align-items: center; gap: 4px; font-size: 10px; line-height: 14px; color: var(--ink-2); min-width: 0; }
+.cell .hhead b { font-weight: 700; letter-spacing: .04em; flex: none; }
+.cell .hhead .vtag { font-size: 10px; line-height: 13px; }
+.cell .half .chips { gap: 1px; }
+.cell .half .quiet { font-size: 10.5px; }
+.cell.dbl { background: var(--dbl); border-color: var(--dbl-edge); }
+a.cell.dbl:hover { background: color-mix(in srgb, var(--dbl-edge) 35%, var(--dbl)); }
+.legend .sw.dblsw { background: var(--dbl); box-shadow: none; border: 1px solid var(--dbl-edge); }
+.acal .cell.split { gap: 1px; }
+.acal .cell .half { padding-top: 0; padding-bottom: 1px; }
+/* race charts: the right-hand miles axis and each week's miles over its bar */
+.chart .axis2 { stroke: var(--line-2); }
+.chart text.ax2 { fill: var(--muted); }
+.chart .blbl { fill: var(--muted); font-variant-numeric: tabular-nums; }
+.cell .half.one { flex-direction: row; align-items: center; gap: 3px; white-space: nowrap; padding: 1px 3px 1px 6px; font-size: 10px; line-height: 15px; }
+.cell .half.one > b { font-size: 10px; font-weight: 700; letter-spacing: .04em; color: var(--ink-2); flex: none; }
+.cell .half.one .vtag { font-size: 10px; line-height: 13px; flex: 0 1 auto; }
+.cell .half.one .chip { flex: 0 1 auto; min-width: 0; text-overflow: ellipsis; }
+.cell .half.one .vtag { font-size: 9.5px; padding: 0 3px; }
+.cell .half.one .chip { font-size: 10px; line-height: 14px; padding-right: 4px; }
+.cell .half.one .more { font-size: 10px; }
+.cell .half.one { gap: 2px; padding: 1px 2px 1px 5px; }
+.cell .half.one .vtag { font-size: 9px; padding: 0 2px; flex: 0 3 auto; }   /* the venue gives way first; the workout stays readable */
+.cell .half.one .chip { font-size: 9.5px; padding-right: 3px; flex: 0 1 auto; }
+.acal .cell.split { gap: 0; }

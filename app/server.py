@@ -89,6 +89,21 @@ def merge_chips(chips):
     return list(out.values())
 
 
+def venue_of(s):
+    """A sheet's venue as the build decided it (rules/venues.csv): name to show, kind, and source - 'sheet' (written
+    on it), 'laps' (no venue written; 1725 m laps = the church loop) or 'track_distances' (inferred: 'track?')."""
+    return {"name": s.get("venue_name") or "", "kind": s.get("venue_kind") or "", "source": s.get("venue_source") or ""}
+
+
+def venues_of(sheets):
+    out = []
+    for s in sheets:
+        v = venue_of(s)
+        if v["name"] and v not in out:
+            out.append(v)
+    return out
+
+
 def jl(s):
     try:
         return json.loads(s) if s else []
@@ -307,23 +322,35 @@ class Data:
         dates = {s["date"] for s in self.sheets if s["season"] == season and s["date"]}
         dates |= {r["date"] for r in self.races if season_of(r["date"]) == season}
         days = {}
-        for d in sorted(dates):
-            sheets = [s for s in self.sheets_by_date.get(d, []) if s["season"] == season]
-            chips, shown, hidden = [], 0, 0
-            for s in sorted(sheets, key=self.session_order):
+
+        def part(sheet_list, no, F):
+            chips, shown, hidden, weights = [], 0, 0, Counter()
+            for s in sheet_list:
                 for b in self.blocks_by_sheet.get(s["sheet_key"], []):
                     if not self.shown_athletes(b["block_key"], F):
                         hidden += 1
                         continue
                     shown += 1
                     chips += self.block_chips(b["block_key"], F)
+                    weights.update(self.group_weights(b["block_key"], F))
+            return {"session_no": no, "venues": venues_of(sheet_list), "chips": merge_chips(chips), "groups": shown,
+                    "hidden_groups": hidden, "main": self.main_type(weights)}, weights
+        for d in sorted(dates):
+            sheets = sorted((s for s in self.sheets_by_date.get(d, []) if s["season"] == season), key=self.session_order)
+            nos = {s["session_no"] for s in sheets}
+            split = {1, 2} <= nos  # Session 1 and Session 2: the box is split, AM on top
+            parts = [part([s for s in sheets if s["session_no"] != 2], 1, F), part([s for s in sheets if s["session_no"] == 2], 2, F)] \
+                if split else [part(sheets, None, F)]
+            weights = sum((w for _, w in parts), Counter())
             races = self.race_rows(self.races_by_date.get(d, []), F)
             meets = Counter((r["meet"], r["kind"]) for r in races)
             row = self.day_row.get(d, {})
             days[d] = {
-                "chips": merge_chips(chips), "groups": shown, "hidden_groups": hidden,
+                "chips": merge_chips([c for p, _ in parts for c in p["chips"]]), "groups": sum(p["groups"] for p, _ in parts),
+                "hidden_groups": sum(p["hidden_groups"] for p, _ in parts),
                 "practice": bool(sheets), "double": bool(row.get("double_threshold")),
-                "church": bool(row.get("church_loop")),
+                "church": bool(row.get("church_loop")), "venues": venues_of(sheets), "main": self.main_type(weights),
+                "split": split, "parts": [p for p, _ in parts] if split else [],
                 "races": [{"meet": m, "kind": k, "n": n} for (m, k), n in meets.items()],
             }
         start = 2000 + int(season[:2])
@@ -351,7 +378,7 @@ class Data:
                 blocks.append(self._block_detail(b, shown, F))
             sessions.append({
                 "tab": s["tab"], "session_no": s["session_no"], "session_note": s["session_note"],
-                "title": s["written_title"], "date_conflict": s["date_conflict"], "venue": s["venue"],
+                "title": s["written_title"], "date_conflict": s["date_conflict"], "venue": s["venue"], "where": venue_of(s),
                 "start_time": s["start_time"], "weather": s["weather"], "church": bool(s["church_loop"]),
                 "blocks": blocks, "hidden_groups": hidden,
             })
@@ -449,10 +476,19 @@ class Data:
                     out[(c["type"], True)] += (a["total_vol_mi"] or 0) * 1609.34 or 1
         return out
 
+    def group_weights(self, block_key, F):
+        """{(type, own): metres} of a group's reps for the shown athletes (F None = everyone) - for the team calendar's
+        tint; a group without rep columns counts its label types by each shown athlete's total volume."""
+        out = Counter()
+        for a in self.shown_athletes(block_key, F):
+            out.update(self.athlete_block_weights(akey(a), a))
+        return out
+
     @staticmethod
     def main_type(weights):
         """The day's main workout category: the workout category (not easy aerobic, unless that's all there is)
-        with the most rep distance; src 'inferred' when most of that category's distance was inferred from pace."""
+        with the most rep distance; src 'sheet' when Patrick's labels (or rule file) give that category any of it,
+        'inferred' when all of it was inferred from pace - so the color is only striped when it's a guess."""
         by = Counter()
         for (t, _), w in weights.items():
             by[t] += w
@@ -461,7 +497,7 @@ class Data:
             return None
         order = list(CATEGORIES)
         t = max(work, key=lambda t: (by[t], -order.index(t)))
-        return {"type": t, "src": "sheet" if weights.get((t, True), 0) >= weights.get((t, False), 0) else "inferred",
+        return {"type": t, "src": "sheet" if weights.get((t, True), 0) > 0 else "inferred",
                 "name": CATEGORIES[t]}
 
     def athlete_dates(self, key):
@@ -497,7 +533,8 @@ class Data:
 
         def day(d):
             return days.setdefault(d, {"chips": [], "groups": [], "church": False, "races": [], "runs": [], "cross": [],
-                                       "weights": Counter()})
+                                       "weights": Counter(), "by_session": defaultdict(lambda: {"chips": [], "weights": Counter(),
+                                                                                             "sheets": []})})
         for d in sorted(self.act_dates.get(head["athlete_id"], ())) if head["athlete_id"] else []:
             if season_of(d) != season:
                 continue
@@ -512,8 +549,14 @@ class Data:
                 continue
             s, b = self.sheet.get(a["sheet_key"], {}), self.block.get(a["block_key"], {})
             x = day(a["date"])
-            x["chips"] += self.athlete_block_chips(key, a["block_key"])
-            x["weights"].update(self.athlete_block_weights(key, a))
+            ch, w = self.athlete_block_chips(key, a["block_key"]), self.athlete_block_weights(key, a)
+            x["chips"] += ch
+            x["weights"].update(w)
+            bs = x["by_session"][2 if a["session_no"] == 2 else 1]
+            bs["chips"] += ch
+            bs["weights"].update(w)
+            if s and s not in bs["sheets"]:
+                bs["sheets"].append(s)
             x["groups"].append({"session_no": a["session_no"], "block_no": b.get("block_no"), "tab": s.get("tab", ""),
                                 "venue": s.get("venue", "")})
             x["church"] = x["church"] or bool(s.get("church_loop"))
@@ -526,10 +569,14 @@ class Data:
         out = {}
         for d, x in sorted(days.items()):
             nos = {g["session_no"] for g in x["groups"] if isinstance(g["session_no"], int)}
+            split = {1, 2} <= nos  # they did Session 1 and Session 2: the box is split, AM on top
+            parts = [{"session_no": n, "venues": venues_of(x["by_session"][n]["sheets"]), "chips": merge_chips(x["by_session"][n]["chips"]),
+                      "main": self.main_type(x["by_session"][n]["weights"])} for n in (1, 2)] if split else []
             out[d] = {"chips": merge_chips(x["chips"]), "groups": x["groups"], "practice": bool(x["groups"]),
                       "church": x["church"], "races": x["races"], "runs": x["runs"], "cross": x["cross"],
-                      "double": bool(self.day_row.get(d, {}).get("double_threshold")) and {1, 2} <= nos,
-                      "main": self.main_type(x["weights"])}
+                      "double": bool(self.day_row.get(d, {}).get("double_threshold")) and split,
+                      "main": self.main_type(x["weights"]), "split": split, "parts": parts,
+                      "venues": venues_of([sh for n in sorted(x["by_session"]) for sh in x["by_session"][n]["sheets"]])}
         # each Monday-Sunday week's run miles (athlete_weeks) for the total at the end of the calendar's week rows
         weeks = {}
         for w in self.weeks_by_athlete.get(head["athlete_id"], []) if head["athlete_id"] else []:
